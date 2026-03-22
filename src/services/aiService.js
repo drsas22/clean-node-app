@@ -13,10 +13,11 @@ const getAnswer = async (messagesArray) => {
         temperature: 0.7, 
       },
       {
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}` 
-        },
+              headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + String(process.env.OPENAI_API_KEY).trim()
+      }
+
       }
     );
 
