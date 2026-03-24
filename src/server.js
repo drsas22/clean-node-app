@@ -7,24 +7,33 @@ const homeworkRoutes = require("./routes/homeworkRoutes");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ✅ Request logger
 app.use((req, res, next) => {
   console.log(`[REQ] ${req.method} ${req.url}`);
   next();
 });
 
-// Middleware
+// ✅ Middleware
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// AI Routes
+// ✅ HEALTH + ROOT ROUTES (VERY IMPORTANT)
+app.get("/", (req, res) => {
+  res.send("Server is working 🚀");
+});
+
+app.get("/health", (req, res) => {
+  res.json({ success: true, message: "Healthy" });
+});
+
+// ✅ Routes
 app.use("/api/ai", aiRoutes);
-
-// Homework OCR Routes
 app.use("/api/homework", homeworkRoutes);
 
-// Static uploads folder
+// ✅ Static uploads
 app.use("/uploads", express.static("uploads"));
 
-// Connect DB & start server
+// ✅ Start server
 connectDB()
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
