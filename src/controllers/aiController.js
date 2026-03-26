@@ -6,16 +6,16 @@ function cleanAIText(text) {
   if (!text) return "";
 
   return text
-    // 1) convert any number of backslashes before n into a single newline
-    .replace(/\\+n/g, "\n")          // "\\n", "\\\\n" -> real newline
-    .replace(/\\r/g, "")             // remove escaped \r if any
-    // 2) now work on real newline characters
-    .replace(/\r/g, "")              // real \r from Windows newlines
-    .replace(/\n{3,}/g, "\n\n")      // max 2 blank lines
-    // bullets: lines starting with "-" or "number."
+    // 1) convert literal "\n" to real newline
+    .replace(/\\n/g, "\n")        // ONLY two chars: backslash + n
+    .replace(/\\r/g, "")          // remove literal "\r"
+    // 2) normalize real newlines
+    .replace(/\r/g, "")           // real carriage returns
+    .replace(/\n{3,}/g, "\n\n")   // collapse 3+ newlines into 2
+    // 3) bullets
     .replace(/^[ \t]*-[ \t]+/gm, "• ")
     .replace(/^[ \t]*\d+\.[ \t]+/gm, "• ")
-    // trim spaces before newline
+    // 4) trim spaces before newline and overall
     .replace(/[ \t]+\n/g, "\n")
     .trim();
 }
