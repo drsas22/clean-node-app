@@ -6,7 +6,7 @@ function cleanAIText(text) {
   if (!text) return "";
 
   return text
-    .replace(/\\n/g, "\n")
+    .replace(/\\+n/g, "\n")   // handles \n, \\n, \\\n all cases
     .replace(/\r/g, "")
     .replace(/\n{3,}/g, "\n\n")
     .replace(/^[ \t]*[-][ \t]+/gm, "• ")
@@ -14,7 +14,6 @@ function cleanAIText(text) {
     .replace(/[ \t]+\n/g, "\n")
     .trim();
 }
-
 const askAI = async (req, res) => {
   try {
     const {
