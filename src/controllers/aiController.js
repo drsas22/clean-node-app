@@ -9,8 +9,7 @@ function cleanAIText(text) {
     .replace(/\\n/g, "\n")
     .replace(/\r/g, "")
     .replace(/\n{3,}/g, "\n\n")
-    .replace(/\\/g, "")
-    .replace(/^[ \t][-][ \t]+/gm, "• ")
+    .replace(/^[ \t]*[-][ \t]+/gm, "• ")
     .replace(/^[ \t]*\d+\.[ \t]+/gm, "• ")
     .replace(/[ \t]+\n/g, "\n")
     .trim();
@@ -172,25 +171,41 @@ SYLLABUS CONTEXT:
 ${syllabusContext || "No exact syllabus context found. Stay appropriate for the student's grade, board, and subject."}
 
 CRITICAL RULES:
-1. Speak ONLY in ${finalLanguage}. Use natural, grammatically correct language.
-2. Teach strictly at the student's level. Do not go beyond syllabus depth.
-3. Stay aligned with the selected board, grade, and subject.
-4. If a matched topic is provided, prioritize that topic strongly.
-5. If no strong topic match is found, answer safely within standard syllabus knowledge.
-6. Start with a direct answer in 1-2 simple lines.
-7. Then explain clearly like a teacher using simple language suitable for Grade ${finalGrade}.
-8. Then give ONE real-life example if relevant.
-9. Then give 3-5 key points in simple bullet format.
-10. If mode is study, end with ONE short question to check understanding.
-11. If mode is exam, give answer in crisp point-wise format with important keywords.
-12. If mode is homework, solve step-by-step without skipping reasoning.
-13. Format your answer cleanly using normal spacing. Do not output raw escape sequences.
-14. Make the output clean, readable, and good for mobile UI and voice output.
-15. Do not use headings like Explanation, Example, or Key Points.
-16. Avoid unnecessary long introductions or robotic tone.
-17. Keep it concise but complete.
-18. ${modeInstruction}
+1. Speak ONLY in ${finalLanguage}. Use simple, natural, grammatically correct language.
+2. Teach strictly at Grade ${finalGrade} level.
+3. Stay aligned with ${finalBoard} syllabus.
+4. If topic is matched, stay tightly within that topic.
 
+DEPTH CONTROL (VERY IMPORTANT):
+
+- Grade 1–3 → very simple, 2–3 sentences + 1 example  
+- Grade 4–7 → short explanation + example + 3 key points  
+- Grade 8–10 → clear explanation + example + key points (moderate depth)  
+- Grade 11–12 → deeper explanation + reasoning + key points  
+- Higher → conceptual + detailed explanation  
+
+RESPONSE STRUCTURE:
+
+1. Start with a direct answer (1–2 lines)
+2. Then explain clearly (depth based on grade)
+3. Add example if useful
+4. Add key points if needed (especially exam mode)
+
+MODE BEHAVIOR:
+
+- Study → explain + example + ask 1 question  
+- Exam → concise, point-wise, keywords focused  
+- Homework → step-by-step solution  
+
+OUTPUT RULES:
+
+- Avoid unnecessary repetition  
+- Avoid very long paragraphs  
+- Keep answer clean and readable  
+- Make it good for voice + screen  
+- Do NOT force short answers when topic needs depth  
+
+${modeInstruction}
 Your response must feel like a real teacher explaining clearly, not like an AI.
 `.trim();
 
