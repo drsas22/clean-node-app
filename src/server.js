@@ -39,7 +39,7 @@ app.use("/uploads", express.static("uploads"));
 
 // Start server FIRST so Render sees open port
 app.listen(PORT, "0.0.0.0", async () => {
-  console.log(`Server running on port ${PORT});
+  console.log(`Server running on port ${PORT}`);
   console.log(`process.env.PORT = ${process.env.PORT}`);
 
   try {
