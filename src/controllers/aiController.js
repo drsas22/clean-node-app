@@ -69,17 +69,13 @@ const askAI = async (req, res) => {
     let modeInstruction = "";
 
     if (finalMode === "study") {
-      modeInstruction =
-        "End with one short follow-up question to check understanding.";
+      modeInstruction = "End with one short follow-up question to check understanding.";
     } else if (finalMode === "exam") {
-      modeInstruction =
-        "Give the answer in crisp exam-ready point-wise style with important keywords and do not ask a follow-up question.";
+      modeInstruction = "Give the answer in crisp exam-ready point-wise style with important keywords and do not ask a follow-up question.";
     } else if (finalMode === "homework") {
-      modeInstruction =
-        "Solve step-by-step clearly without skipping reasoning and do not ask unrelated follow-up questions.";
+      modeInstruction = "Solve step-by-step clearly without skipping reasoning and do not ask unrelated follow-up questions.";
     } else {
-      modeInstruction =
-        "Explain clearly in a helpful, conversational way.";
+      modeInstruction = "Explain clearly in a helpful, conversational way.";
     }
 
     let syllabusContext = "";
@@ -100,17 +96,11 @@ const askAI = async (req, res) => {
         const scoredTopics = syllabusTopics.map((item) => {
           let score = 0;
 
-          if (
-            item.topicName &&
-            lowerQuestion.includes(item.topicName.toLowerCase())
-          ) {
+          if (item.topicName && lowerQuestion.includes(item.topicName.toLowerCase())) {
             score += 5;
           }
 
-          if (
-            item.chapterName &&
-            lowerQuestion.includes(item.chapterName.toLowerCase())
-          ) {
+          if (item.chapterName && lowerQuestion.includes(item.chapterName.toLowerCase())) {
             score += 3;
           }
 
@@ -141,19 +131,22 @@ const askAI = async (req, res) => {
           matchedTopicName = bestMatch.item.topicName;
           matchedChapterName = bestMatch.item.chapterName;
 
-          syllabusContext = `
-Matched Chapter: ${bestMatch.item.chapterName}
-Matched Topic: ${bestMatch.item.topicName}
-Keywords: ${(bestMatch.item.keywords || []).join(", ")}
-Aliases: ${(bestMatch.item.aliases || []).join(", ")}
-          `.trim();
+          syllabusContext =
+            "Matched Chapter: " + bestMatch.item.chapterName + "\n" +
+            "Matched Topic: " + bestMatch.item.topicName + "\n" +
+            "Keywords: " + (bestMatch.item.keywords || []).join(", ") + "\n" +
+            "Aliases: " + (bestMatch.item.aliases || []).join(", ");
         } else {
           syllabusContext = syllabusTopics
             .slice(0, 10)
-            .map(
-              (item) =>
-                Chapter ${item.chapterNumber || ""}: ${item.chapterName} | Topic: ${item.topicName}
-            )
+            .map((item) => {
+              return "Chapter " +
+                (item.chapterNumber || "") +
+                ": " +
+                item.chapterName +
+                " | Topic: " +
+                item.topicName;
+            })
             .join("\n");
         }
       }
@@ -187,16 +180,13 @@ CRITICAL RULES:
 6. Start with a direct answer in 1-2 simple lines.
 7. Then explain clearly like a teacher using simple language suitable for Grade ${finalGrade}.
 8. Then give ONE real-life example if relevant.
-9. Then give 3-5 key points using simple bullet format like:
-* point 1
-* point 2
-* point 3
-10. If mode is "study", end with ONE short question to check understanding.
-11. If mode is "exam", give answer in crisp point-wise format with important keywords.
-12. If mode is "homework", solve step-by-step without skipping reasoning.
-13. Format your answer cleanly using normal spacing. Do NOT use raw symbols like "\\n", "\\n1", markdown code blocks, or messy formatting.
-14. Make the output clean, readable, and perfect for mobile UI and voice output.
-15. Do NOT use headings like "Explanation:", "Example:", "Key Points:".
+9. Then give 3-5 key points in simple bullet format.
+10. If mode is study, end with ONE short question to check understanding.
+11. If mode is exam, give answer in crisp point-wise format with important keywords.
+12. If mode is homework, solve step-by-step without skipping reasoning.
+13. Format your answer cleanly using normal spacing. Do not output raw escape sequences.
+14. Make the output clean, readable, and good for mobile UI and voice output.
+15. Do not use headings like Explanation, Example, or Key Points.
 16. Avoid unnecessary long introductions or robotic tone.
 17. Keep it concise but complete.
 18. ${modeInstruction}
@@ -228,7 +218,7 @@ Your response must feel like a real teacher explaining clearly, not like an AI.
 
     return res.json({
       success: true,
-      answer,
+      answer: answer,
       subject: finalSubject,
       matchedChapter: matchedChapterName,
       matchedTopic: matchedTopicName,
