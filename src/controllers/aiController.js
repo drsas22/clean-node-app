@@ -68,23 +68,75 @@ const askAI = async (req, res) => {
         "Explain clearly in a helpful, conversational way.";
     }
 
-    // ✅ Fetch syllabus context
+    // ✅ Fetch syllabus context and find best topic match
     let syllabusContext = "";
+    let matchedTopicName = "";
+    let matchedChapterName = "";
+
     try {
       const syllabusTopics = await SyllabusNode.find({
         board: finalBoard,
         grade: finalGrade,
         subject: finalSubject,
         active: true
-      }).limit(20);
+      });
 
       if (syllabusTopics.length > 0) {
-        syllabusContext = syllabusTopics
-          .map(
-            (item) =>
-              `Chapter ${item.chapterNumber || ""}: ${item.chapterName} | Topic: ${item.topicName}`
-          )
-          .join("\n");
+        const lowerQuestion = question.toLowerCase();
+
+        const scoredTopics = syllabusTopics.map((item) => {
+          let score = 0;
+
+          if (item.topicName && lowerQuestion.includes(item.topicName.toLowerCase())) {
+            score += 5;
+          }
+
+          if (item.chapterName && lowerQuestion.includes(item.chapterName.toLowerCase())) {
+            score += 3;
+          }
+
+          if (Array.isArray(item.keywords)) {
+            item.keywords.forEach((keyword) => {
+              if (lowerQuestion.includes(String(keyword).toLowerCase())) {
+                score += 2;
+              }
+            });
+          }
+
+          if (Array.isArray(item.aliases)) {
+            item.aliases.forEach((alias) => {
+              if (lowerQuestion.includes(String(alias).toLowerCase())) {
+                score += 2;
+              }
+            });
+          }
+
+          return { item, score };
+        });
+
+        scoredTopics.sort((a, b) => b.score - a.score);
+
+        const bestMatch = scoredTopics[0];
+
+        if (bestMatch && bestMatch.score > 0) {
+          matchedTopicName = bestMatch.item.topicName;
+          matchedChapterName = bestMatch.item.chapterName;
+
+          syllabusContext = `
+Matched Chapter: ${bestMatch.item.chapterName}
+Matched Topic: ${bestMatch.item.topicName}
+Keywords: ${(bestMatch.item.keywords || []).join(", ")}
+Aliases: ${(bestMatch.item.aliases || []).join(", ")}
+          `;
+        } else {
+          syllabusContext = syllabusTopics
+            .slice(0, 10)
+            .map(
+              (item) =>
+                `Chapter ${item.chapterNumber || ""}: ${item.chapterName} | Topic: ${item.topicName}`
+            )
+            .join("\n");
+        }
       }
     } catch (err) {
       console.log("Syllabus fetch failed:", err.message);
@@ -100,6 +152,10 @@ STUDENT PROFILE:
 - Language: ${finalLanguage}
 - Mode: ${finalMode}
 
+MATCHING RESULT:
+- Matched Chapter: ${matchedChapterName || "Not confidently matched"}
+- Matched Topic: ${matchedTopicName || "Not confidently matched"}
+
 SYLLABUS CONTEXT:
 ${syllabusContext || "No exact syllabus context found. Stay appropriate for the student's grade, board, and subject."}
 
@@ -107,11 +163,12 @@ CRITICAL RULES:
 1. Speak ONLY in ${finalLanguage}. Use natural, grammatically correct language.
 2. Teach at exactly the student's level. Do not go far beyond syllabus depth.
 3. Stay aligned with the selected board, grade, and subject.
-4. First answer directly, then explain clearly.
-5. Keep the answer concise but useful. Usually under 6 sentences unless the mode requires stepwise solving.
-6. Do NOT use headers, brackets, or robotic formatting unless exam mode needs pointwise output.
-7. If the question seems outside the likely syllabus, still answer helpfully but keep the depth appropriate.
-8. ${modeInstruction}
+4. If a matched topic is provided, prioritize that topic strongly.
+5. If no strong topic match is found, answer conservatively using standard syllabus-safe depth.
+6. First answer directly, then explain clearly.
+7. Keep the answer concise but useful. Usually under 6 sentences unless the mode requires stepwise solving.
+8. Do NOT use headers, brackets, or robotic formatting unless exam mode needs pointwise output.
+9. ${modeInstruction}
 `;
 
     let messagesArray = [
@@ -141,6 +198,8 @@ CRITICAL RULES:
       success: true,
       answer,
       subject: finalSubject,
+      matchedChapter: matchedChapterName,
+      matchedTopic: matchedTopicName,
       mood: "explainer"
     });
 
