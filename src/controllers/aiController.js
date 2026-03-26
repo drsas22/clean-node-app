@@ -2,6 +2,20 @@ const Student = require("../models/Student");
 const SyllabusNode = require("../models/SyllabusNode");
 const aiService = require("../services/aiService");
 
+function cleanAIText(text) {
+  if (!text) return "";
+
+  return text
+    .replace(/\\n/g, "\n")
+    .replace(/\r/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\\/g, "")
+    .replace(/^[ \t][-][ \t]+/gm, "• ")
+    .replace(/^[ \t]*\d+\.[ \t]+/gm, "• ")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+}
+
 const askAI = async (req, res) => {
   try {
     const {
@@ -56,19 +70,18 @@ const askAI = async (req, res) => {
 
     if (finalMode === "study") {
       modeInstruction =
-        "Explain like a teacher in a simple and clear way, use one easy example, and end with one short recap line.";
+        "End with one short follow-up question to check understanding.";
     } else if (finalMode === "exam") {
       modeInstruction =
-        "Give an exam-ready answer in concise point-wise format with important keywords. Do not ask follow-up questions.";
+        "Give the answer in crisp exam-ready point-wise style with important keywords and do not ask a follow-up question.";
     } else if (finalMode === "homework") {
       modeInstruction =
-        "Guide step-by-step. If it is a problem, show the steps clearly. Do not skip reasoning.";
+        "Solve step-by-step clearly without skipping reasoning and do not ask unrelated follow-up questions.";
     } else {
       modeInstruction =
         "Explain clearly in a helpful, conversational way.";
     }
 
-    // ✅ Fetch syllabus context and find best topic match
     let syllabusContext = "";
     let matchedTopicName = "";
     let matchedChapterName = "";
@@ -87,11 +100,17 @@ const askAI = async (req, res) => {
         const scoredTopics = syllabusTopics.map((item) => {
           let score = 0;
 
-          if (item.topicName && lowerQuestion.includes(item.topicName.toLowerCase())) {
+          if (
+            item.topicName &&
+            lowerQuestion.includes(item.topicName.toLowerCase())
+          ) {
             score += 5;
           }
 
-          if (item.chapterName && lowerQuestion.includes(item.chapterName.toLowerCase())) {
+          if (
+            item.chapterName &&
+            lowerQuestion.includes(item.chapterName.toLowerCase())
+          ) {
             score += 3;
           }
 
@@ -127,13 +146,13 @@ Matched Chapter: ${bestMatch.item.chapterName}
 Matched Topic: ${bestMatch.item.topicName}
 Keywords: ${(bestMatch.item.keywords || []).join(", ")}
 Aliases: ${(bestMatch.item.aliases || []).join(", ")}
-          `;
+          `.trim();
         } else {
           syllabusContext = syllabusTopics
             .slice(0, 10)
             .map(
               (item) =>
-                `Chapter ${item.chapterNumber || ""}: ${item.chapterName} | Topic: ${item.topicName}`
+                Chapter ${item.chapterNumber || ""}: ${item.chapterName} | Topic: ${item.topicName}
             )
             .join("\n");
         }
@@ -142,7 +161,7 @@ Aliases: ${(bestMatch.item.aliases || []).join(", ")}
       console.log("Syllabus fetch failed:", err.message);
     }
 
-  const systemPrompt = `
+    const systemPrompt = `
 You are a highly skilled, mature, and friendly educational Fairy tutor having a natural 1-on-1 conversation with a student.
 
 STUDENT PROFILE:
@@ -165,44 +184,27 @@ CRITICAL RULES:
 3. Stay aligned with the selected board, grade, and subject.
 4. If a matched topic is provided, prioritize that topic strongly.
 5. If no strong topic match is found, answer safely within standard syllabus knowledge.
-
-6. Start with a direct answer in 1–2 simple lines.
-
+6. Start with a direct answer in 1-2 simple lines.
 7. Then explain clearly like a teacher using simple language suitable for Grade ${finalGrade}.
-
-8. Then give ONE real-life example (if relevant).
-
-9. Then give 3–5 key points using simple bullet format like:
-* point 1  
-* point 2  
-* point 3  
-
+8. Then give ONE real-life example if relevant.
+9. Then give 3-5 key points using simple bullet format like:
+* point 1
+* point 2
+* point 3
 10. If mode is "study", end with ONE short question to check understanding.
-
 11. If mode is "exam", give answer in crisp point-wise format with important keywords.
-
 12. If mode is "homework", solve step-by-step without skipping reasoning.
-
-13. Format your answer cleanly using normal spacing.
-DO NOT use raw symbols like "\\n", "\\n1", or code-style formatting.
-
-14. Make the output clean, readable, and perfect for mobile UI and voice (TTS).
-
-15. Do NOT use headings like "Explanation:", "Example:", etc.
-Write everything naturally like a teacher speaking.
-
+13. Format your answer cleanly using normal spacing. Do NOT use raw symbols like "\\n", "\\n1", markdown code blocks, or messy formatting.
+14. Make the output clean, readable, and perfect for mobile UI and voice output.
+15. Do NOT use headings like "Explanation:", "Example:", "Key Points:".
 16. Avoid unnecessary long introductions or robotic tone.
-
 17. Keep it concise but complete.
-
 18. ${modeInstruction}
 
 Your response must feel like a real teacher explaining clearly, not like an AI.
-`;
+`.trim();
 
-    let messagesArray = [
-      { role: "system", content: systemPrompt }
-    ];
+    let messagesArray = [{ role: "system", content: systemPrompt }];
 
     if (chatHistory && Array.isArray(chatHistory)) {
       messagesArray = messagesArray.concat(chatHistory);
@@ -210,7 +212,8 @@ Your response must feel like a real teacher explaining clearly, not like an AI.
 
     messagesArray.push({ role: "user", content: question });
 
-    const answer = await aiService.getAnswer(messagesArray);
+    let answer = await aiService.getAnswer(messagesArray);
+    answer = cleanAIText(answer);
 
     try {
       if (student.recentQuestions) {
@@ -231,7 +234,6 @@ Your response must feel like a real teacher explaining clearly, not like an AI.
       matchedTopic: matchedTopicName,
       mood: "explainer"
     });
-
   } catch (error) {
     console.error("AI Controller Error:", error);
 
