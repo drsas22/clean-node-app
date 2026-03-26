@@ -1,9 +1,19 @@
 const Student = require("../models/Student");
+const SyllabusNode = require("../models/SyllabusNode");
 const aiService = require("../services/aiService");
 
 const askAI = async (req, res) => {
   try {
-    const { studentId, question, grade, language, mode, chatHistory } = req.body;
+    const {
+      studentId,
+      question,
+      grade,
+      language,
+      mode,
+      board,
+      subject,
+      chatHistory
+    } = req.body;
 
     if (!question) {
       return res.status(400).json({
@@ -25,8 +35,10 @@ const askAI = async (req, res) => {
     if (!student) {
       console.log("Student not found, using fallback demo student");
       student = {
-        grade: grade || "5",
+        grade: grade || "Grade 5",
         language: language || "English",
+        board: board || "CBSE",
+        subjectPreference: subject || "General",
         mood: "neutral",
         recentQuestions: [],
         lastTopic: "",
@@ -34,53 +46,86 @@ const askAI = async (req, res) => {
       };
     }
 
-    const finalGrade = grade || student.grade || "5";
+    const finalGrade = grade || student.grade || "Grade 5";
     const finalLanguage = language || student.language || "English";
     const finalMode = mode || "study";
+    const finalBoard = board || student.board || "CBSE";
+    const finalSubject = subject || student.subjectPreference || "General";
 
     let modeInstruction = "";
 
     if (finalMode === "study") {
-      modeInstruction = "Explain the concept simply, use one easy example, and end by asking the student a follow-up question to test their understanding.";
+      modeInstruction =
+        "Explain like a teacher in a simple and clear way, use one easy example, and end with one short recap line.";
     } else if (finalMode === "exam") {
-      modeInstruction = "Give a concise, direct, point-wise answer. Do not ask follow-up questions.";
+      modeInstruction =
+        "Give an exam-ready answer in concise point-wise format with important keywords. Do not ask follow-up questions.";
     } else if (finalMode === "homework") {
-      modeInstruction = "Guide the student step-by-step. Do not just give the final answer. End by asking if they are ready for the next step.";
+      modeInstruction =
+        "Guide step-by-step. If it is a problem, show the steps clearly. Do not skip reasoning.";
     } else {
-      modeInstruction = "Explain clearly in a helpful, conversational way.";
+      modeInstruction =
+        "Explain clearly in a helpful, conversational way.";
     }
 
-    // --- PHASE 1: THE NEW CONVERSATIONAL SYSTEM PROMPT ---
+    // ✅ Fetch syllabus context
+    let syllabusContext = "";
+    try {
+      const syllabusTopics = await SyllabusNode.find({
+        board: finalBoard,
+        grade: finalGrade,
+        subject: finalSubject,
+        active: true
+      }).limit(20);
+
+      if (syllabusTopics.length > 0) {
+        syllabusContext = syllabusTopics
+          .map(
+            (item) =>
+              `Chapter ${item.chapterNumber || ""}: ${item.chapterName} | Topic: ${item.topicName}`
+          )
+          .join("\n");
+      }
+    } catch (err) {
+      console.log("Syllabus fetch failed:", err.message);
+    }
+
     const systemPrompt = `
-You are a highly skilled, mature, and friendly educational Fairy tutor. 
-You are currently having a natural 1-on-1 conversation with a Grade ${finalGrade} student.
+You are a highly skilled, mature, and friendly educational Fairy tutor having a natural 1-on-1 conversation with a student.
+
+STUDENT PROFILE:
+- Board: ${finalBoard}
+- Grade: ${finalGrade}
+- Subject: ${finalSubject}
+- Language: ${finalLanguage}
+- Mode: ${finalMode}
+
+SYLLABUS CONTEXT:
+${syllabusContext || "No exact syllabus context found. Stay appropriate for the student's grade, board, and subject."}
 
 CRITICAL RULES:
-1. Speak ONLY in ${finalLanguage}. Do not use English words unless ${finalLanguage} is English. Ensure grammatically perfect, natural syntax.
-2. Act like a real human teacher. DO NOT use brackets, headers, or announce the grade level.
-3. Your explanation must be tailored exactly to a Grade ${finalGrade} understanding. Do not give complex university-level answers unless the student is a Master's student.
-4. Keep your answer concise (under 3 sentences) so the audio does not get too long.
-5. ${modeInstruction}
+1. Speak ONLY in ${finalLanguage}. Use natural, grammatically correct language.
+2. Teach at exactly the student's level. Do not go far beyond syllabus depth.
+3. Stay aligned with the selected board, grade, and subject.
+4. First answer directly, then explain clearly.
+5. Keep the answer concise but useful. Usually under 6 sentences unless the mode requires stepwise solving.
+6. Do NOT use headers, brackets, or robotic formatting unless exam mode needs pointwise output.
+7. If the question seems outside the likely syllabus, still answer helpfully but keep the depth appropriate.
+8. ${modeInstruction}
 `;
 
-    // --- PHASE 1: BUILDING THE MEMORY ARRAY ---
-    // This creates an array of messages exactly how OpenAI expects it.
     let messagesArray = [
       { role: "system", content: systemPrompt }
     ];
 
-    // If the Unity app sends previous messages, we add them to the AI's memory!
     if (chatHistory && Array.isArray(chatHistory)) {
       messagesArray = messagesArray.concat(chatHistory);
     }
 
-    // Finally, we add the brand new question the student just asked
     messagesArray.push({ role: "user", content: question });
 
-    // Send the array to aiService (which we already updated to handle arrays!)
     const answer = await aiService.getAnswer(messagesArray);
 
-    // Save history
     try {
       if (student.recentQuestions) {
         student.recentQuestions.push(question);
@@ -94,8 +139,8 @@ CRITICAL RULES:
 
     return res.json({
       success: true,
-      answer: answer,
-      subject: "general",
+      answer,
+      subject: finalSubject,
       mood: "explainer"
     });
 
