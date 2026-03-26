@@ -1,8 +1,12 @@
 require("dotenv").config();
 const express = require("express");
 const connectDB = require("./config/db");
+
 const aiRoutes = require("./routes/aiRoutes");
 const homeworkRoutes = require("./routes/homeworkRoutes");
+const studentRoutes = require("./routes/studentRoutes");
+const syllabusRoutes = require("./routes/syllabusRoutes");
+ // ✅ ADD THIS
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -17,7 +21,7 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ HEALTH + ROOT ROUTES (VERY IMPORTANT)
+// ✅ HEALTH + ROOT ROUTES
 app.get("/", (req, res) => {
   res.send("Server is working 🚀");
 });
@@ -29,6 +33,8 @@ app.get("/health", (req, res) => {
 // ✅ Routes
 app.use("/api/ai", aiRoutes);
 app.use("/api/homework", homeworkRoutes);
+app.use("/api/student", studentRoutes); // ✅ ADD THIS
+app.use("/api/syllabus", syllabusRoutes);
 
 // ✅ Static uploads
 app.use("/uploads", express.static("uploads"));
