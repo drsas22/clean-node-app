@@ -6,19 +6,23 @@ function cleanAIText(text) {
   if (!text) return "";
 
   return text
-    // 1) convert literal "\n" to real newline
-    .replace(/\\n/g, "\n")        // ONLY two chars: backslash + n
-    .replace(/\\r/g, "")          // remove literal "\r"
-    // 2) normalize real newlines
-    .replace(/\r/g, "")           // real carriage returns
-    .replace(/\n{3,}/g, "\n\n")   // collapse 3+ newlines into 2
-    // 3) bullets
+    // 1) turn literal "\n" and "\r" (two characters) into real control characters
+    .replace(/\\n/g, "\n")      // from "\\n" in JSON to actual newline
+    .replace(/\\r/g, "\r")      // rarely used, but for symmetry
+
+    // 2) normalize real newlines now present in the string
+    .replace(/\r/g, "")         // drop carriage returns
+    .replace(/\n{3,}/g, "\n\n") // collapse 3+ newlines into 2
+
+    // 3) bullets: lines starting with "-" or "number."
     .replace(/^[ \t]*-[ \t]+/gm, "• ")
     .replace(/^[ \t]*\d+\.[ \t]+/gm, "• ")
-    // 4) trim spaces before newline and overall
+
+    // 4) trim spaces before newlines and overall
     .replace(/[ \t]+\n/g, "\n")
     .trim();
 }
+
 const askAI = async (req, res) => {
   try {
     const {
