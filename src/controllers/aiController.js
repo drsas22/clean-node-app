@@ -6,11 +6,10 @@ function cleanAIText(text) {
   if (!text) return "";
 
   return text
-    // convert escaped newlines
     .replace(/\\n/g, "\n")
     .replace(/\\r/g, "\r")
 
-    // 🔥 ADD THESE TWO LINES HERE
+    // remove LaTeX junk
     .replace(/\\text\{.*?\}/g, "")
     .replace(/\\\\/g, "")
 
@@ -22,11 +21,12 @@ function cleanAIText(text) {
     .replace(/^[ \t]*-[ \t]+/gm, "• ")
     .replace(/^[ \t]*\d+\.[ \t]+/gm, "• ")
 
-    // trim
+    // 🔥 ADD THIS LINE (important)
+    .replace(/\n/g, " \n")   // makes UI + voice better
+
     .replace(/[ \t]+\n/g, "\n")
     .trim();
 }
-
 function buildKeywordFallback(question, syllabusTopics) {
   const lowerQuestion = question.toLowerCase();
 
