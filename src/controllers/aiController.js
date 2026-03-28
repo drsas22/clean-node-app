@@ -85,81 +85,88 @@ const askAI = async (req, res) => {
       modeInstruction = "Explain clearly in a helpful, conversational way.";
     }
 
-    let syllabusContext = "";
-    let matchedTopicName = "";
-    let matchedChapterName = "";
+   let syllabusContext = "";
+let matchedTopicName = "";
+let matchedChapterName = "";
 
-    try {
-      const syllabusTopics = await SyllabusNode.find({
-        board: finalBoard,
-        grade: finalGrade,
-        subject: finalSubject,
-        active: true
-      });
+try {
+  const questionEmbedding = await aiService.getEmbedding(question);
 
-      if (syllabusTopics.length > 0) {
-        const lowerQuestion = question.toLowerCase();
-
-        const scoredTopics = syllabusTopics.map((item) => {
-          let score = 0;
-
-          if (item.topicName && lowerQuestion.includes(item.topicName.toLowerCase())) {
-            score += 5;
-          }
-
-          if (item.chapterName && lowerQuestion.includes(item.chapterName.toLowerCase())) {
-            score += 3;
-          }
-
-          if (Array.isArray(item.keywords)) {
-            item.keywords.forEach((keyword) => {
-              if (lowerQuestion.includes(String(keyword).toLowerCase())) {
-                score += 2;
-              }
-            });
-          }
-
-          if (Array.isArray(item.aliases)) {
-            item.aliases.forEach((alias) => {
-              if (lowerQuestion.includes(String(alias).toLowerCase())) {
-                score += 2;
-              }
-            });
-          }
-
-          return { item, score };
-        });
-
-        scoredTopics.sort((a, b) => b.score - a.score);
-
-        const bestMatch = scoredTopics[0];
-
-        if (bestMatch && bestMatch.score > 0) {
-          matchedTopicName = bestMatch.item.topicName;
-          matchedChapterName = bestMatch.item.chapterName;
-
-          syllabusContext =
-            "Matched Chapter: " + bestMatch.item.chapterName + "\n" +
-            "Matched Topic: " + bestMatch.item.topicName + "\n" +
-            "Keywords: " + (bestMatch.item.keywords || []).join(", ") + "\n" +
-            "Aliases: " + (bestMatch.item.aliases || []).join(", ");
-        } else {
-          syllabusContext = syllabusTopics
-            .slice(0, 10)
-            .map((item) => {
-              return "Chapter " +
-                (item.chapterNumber || "") +
-                ": " +
-                item.chapterName +
-                " | Topic: " +
-                item.topicName;
-            })
-            .join("\n");
+  const vectorResults = await SyllabusNode.aggregate([
+    {
+      $vectorSearch: {
+        index: "vector_index",
+        path: "embedding",
+        queryVector: questionEmbedding,
+        numCandidates: 50,
+        limit: 5,
+        filter: {
+          board: finalBoard,
+          grade: finalGrade,
+          subject: finalSubject,
+          active: true
         }
       }
-    } catch (err) {
-      console.log("Syllabus fetch failed:", err.message);
+    },
+    {
+      $project: {
+        board: 1,
+        grade: 1,
+        subject: 1,
+        chapterNumber: 1,
+        chapterName: 1,
+        topicName: 1,
+        keywords: 1,
+        aliases: 1,
+        score: { $meta: "vectorSearchScore" }
+      }
     }
+  ]);
+
+  if (vectorResults.length > 0) {
+    const bestMatch = vectorResults[0];
+
+    matchedTopicName = bestMatch.topicName || "";
+    matchedChapterName = bestMatch.chapterName || "";
+
+    syllabusContext =
+      "Matched Chapter: " + (bestMatch.chapterName || "") + "\n" +
+      "Matched Topic: " + (bestMatch.topicName || "") + "\n" +
+      "Keywords: " + (bestMatch.keywords || []).join(", ") + "\n" +
+      "Aliases: " + (bestMatch.aliases || []).join(", ");
+
+    console.log("Best vector match:", {
+      chapter: matchedChapterName,
+      topic: matchedTopicName,
+      score: bestMatch.score
+    });
+  } else {
+    const fallbackTopics = await SyllabusNode.find({
+      board: finalBoard,
+      grade: finalGrade,
+      subject: finalSubject,
+      active: true
+    })
+      .select("chapterNumber chapterName topicName")
+      .limit(10)
+      .lean();
+
+    syllabusContext = fallbackTopics
+      .map((item) => {
+        return (
+          "Chapter " +
+          (item.chapterNumber || "") +
+          ": " +
+          item.chapterName +
+          " | Topic: " +
+          item.topicName
+        );
+      })
+      .join("\n");
+  }
+} catch (err) {
+  console.log("Syllabus vector search failed:", err.message);
+}
 
     const systemPrompt = `
 You are a highly skilled, mature, and friendly educational Fairy tutor having a natural 1-on-1 conversation with a student.

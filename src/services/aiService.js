@@ -2,22 +2,21 @@ const axios = require("axios");
 
 const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
 const OPENAI_MODEL = (process.env.OPENAI_MODEL || "gpt-4o-mini").trim();
-const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 
+const CHAT_URL = "https://api.openai.com/v1/chat/completions";
+const EMBEDDING_URL = "https://api.openai.com/v1/embeddings";
+
+
+// ✅ CHAT FUNCTION
 const getAnswer = async (messagesArray) => {
   try {
     if (!OPENAI_API_KEY) {
-      console.error("OpenAI API key missing. Add OPENAI_API_KEY to your environment.");
-      return "AI service is currently unavailable";
-    }
-
-    if (!Array.isArray(messagesArray) || messagesArray.length === 0) {
-      console.error("Invalid messagesArray passed to getAnswer");
+      console.error("OpenAI API key missing");
       return "AI service is currently unavailable";
     }
 
     const response = await axios.post(
-      OPENAI_URL,
+      CHAT_URL,
       {
         model: OPENAI_MODEL,
         messages: messagesArray,
@@ -34,40 +33,42 @@ const getAnswer = async (messagesArray) => {
 
     const answer = response?.data?.choices?.[0]?.message?.content;
 
-    if (typeof answer === "string" && answer.trim().length > 0) {
-      return answer.trim();
-    }
+    if (answer) return answer.trim();
 
-    console.error("OpenAI returned no usable answer:", response?.data);
-    return "Sorry, I couldn't generate a response right now.";
+    return "Sorry, I couldn't generate a response.";
   } catch (error) {
-    if (error.response) {
-      console.error("OpenAI API Error:", {
-        status: error.response.status,
-        data: error.response.data
-      });
-
-      if (error.response.status === 401) {
-        return "AI service authentication failed";
-      }
-
-      if (error.response.status === 429) {
-        return "AI service is busy right now. Please try again.";
-      }
-
-      return "AI service is currently unavailable";
-    }
-
-    if (error.code === "ECONNABORTED") {
-      console.error("OpenAI request timed out");
-      return "AI service took too long to respond";
-    }
-
-    console.error("OpenAI API Error:", error.message);
+    console.error("OpenAI Error:", error.response?.data || error.message);
     return "AI service is currently unavailable";
   }
 };
 
+
+// ✅ EMBEDDING FUNCTION (NEW — VERY IMPORTANT)
+const getEmbedding = async (text) => {
+  try {
+    const response = await axios.post(
+      EMBEDDING_URL,
+      {
+        model: "text-embedding-3-small",
+        input: text
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OPENAI_API_KEY}`
+        }
+      }
+    );
+
+    return response.data.data[0].embedding;
+  } catch (error) {
+    console.error("Embedding Error:", error.response?.data || error.message);
+    throw error;
+  }
+};
+
+
 module.exports = {
-  getAnswer
+  getAnswer,
+  getEmbedding
 };
