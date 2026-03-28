@@ -6,12 +6,23 @@ function cleanAIText(text) {
   if (!text) return "";
 
   return text
+    // convert escaped newlines
     .replace(/\\n/g, "\n")
     .replace(/\\r/g, "\r")
+
+    // 🔥 ADD THESE TWO LINES HERE
+    .replace(/\\text\{.*?\}/g, "")
+    .replace(/\\\\/g, "")
+
+    // normalize spacing
     .replace(/\r/g, "")
     .replace(/\n{3,}/g, "\n\n")
+
+    // bullets
     .replace(/^[ \t]*-[ \t]+/gm, "• ")
     .replace(/^[ \t]*\d+\.[ \t]+/gm, "• ")
+
+    // trim
     .replace(/[ \t]+\n/g, "\n")
     .trim();
 }
