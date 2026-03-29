@@ -1,6 +1,7 @@
 const Student = require("../models/Student");
 const SyllabusNode = require("../models/SyllabusNode");
 const aiService = require("../services/aiService");
+const StudentMemory = require("../models/StudentMemory");
 
 function cleanAIText(text) {
   if (!text) return "";
@@ -25,7 +26,7 @@ function cleanAIText(text) {
     .replace(/\\sqrt\{([^{}]+)\}/g, "sqrt($1)")
     .replace(/\\pi/g, "pi")
 
-    // REMOVE ANY REMAINING LATEX COMMANDS
+    // remove remaining latex commands
     .replace(/\\[a-zA-Z]+/g, "")
 
     // remove stray slashes
@@ -36,7 +37,9 @@ function cleanAIText(text) {
 
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-}function escapeRegex(text) {
+}
+
+function escapeRegex(text) {
   return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
@@ -100,18 +103,6 @@ function normalizeGrade(input) {
   };
 
   return gradeMap[g] || g;
-}
-
-function normalizeStoredGrade(input) {
-  const g = String(input || "").trim().toLowerCase();
-
-  if (!g) return "";
-
-  return g
-    .replace(/^grade\s*/i, "")
-    .replace(/^class\s*/i, "")
-    .replace(/\s+/g, "")
-    .trim();
 }
 
 function formatStoredGrade(grade) {
@@ -234,6 +225,57 @@ Content: ${node.content || node.searchableText || ""}
     .join("\n");
 }
 
+async function updateMemory(userId, question, subject, grade, topic) {
+  try {
+    console.log("Memory function called");
+
+    let memory = await StudentMemory.findOne({ userId });
+
+    if (!memory) {
+      console.log("No memory found. Creating new memory document for:", userId);
+
+      memory = new StudentMemory({
+        userId,
+        recentQuestions: [],
+        weakTopics: []
+      });
+    }
+
+    memory.recentQuestions.push({
+      question,
+      subject,
+      grade,
+      topic,
+      timestamp: new Date()
+    });
+
+    if (memory.recentQuestions.length > 30) {
+      memory.recentQuestions = memory.recentQuestions.slice(-30);
+    }
+
+    const safeTopic = topic || "unknown";
+
+    const existing = memory.weakTopics.find(
+      (t) => t.topic === safeTopic && t.subject === subject
+    );
+
+    if (existing) {
+      existing.count += 1;
+    } else {
+      memory.weakTopics.push({
+        topic: safeTopic,
+        subject,
+        count: 1
+      });
+    }
+
+    await memory.save();
+    console.log("Memory saved successfully for:", userId);
+  } catch (err) {
+    console.error("Memory update failed:", err);
+  }
+}
+
 async function askAI(req, res) {
   try {
     const question = String(req.body.question || "").trim();
@@ -241,6 +283,7 @@ async function askAI(req, res) {
     const subject = normalizeSubject(req.body.subject);
     const mode = normalizeMode(req.body.mode);
     const studentId = req.body.studentId || null;
+    const userId = studentId || "demo-user";
     const detectedTopic = extractTopic(question);
 
     if (!question) {
@@ -269,12 +312,7 @@ async function askAI(req, res) {
     let matches = [];
     let retrievalMethod = "none";
 
-    // -----------------------------
-    // STAGE 1: EXACT / LEXICAL SEARCH
-    // -----------------------------
-    const lexicalQuery = {
-      active: true
-    };
+    const lexicalQuery = { active: true };
 
     if (subject) {
       lexicalQuery.subject = new RegExp(`^${escapeRegex(subject)}$`, "i");
@@ -302,7 +340,23 @@ async function askAI(req, res) {
       .replace(/[^a-z0-9\s]/g, " ")
       .split(/\s+/)
       .filter(Boolean)
-      .filter((w) => !["what", "is", "are", "the", "of", "in", "on", "for", "a", "an", "explain", "define"].includes(w))
+      .filter(
+        (w) =>
+          ![
+            "what",
+            "is",
+            "are",
+            "the",
+            "of",
+            "in",
+            "on",
+            "for",
+            "a",
+            "an",
+            "explain",
+            "define"
+          ].includes(w)
+      )
       .slice(0, 5);
 
     importantWords.forEach((word) => {
@@ -332,9 +386,6 @@ async function askAI(req, res) {
       }
     }
 
-    // -----------------------------
-    // STAGE 2: VECTOR FALLBACK
-    // -----------------------------
     if (!matches.length) {
       const enrichedQuery = `${question} ${subject} grade ${grade} ${detectedTopic}`.trim();
       const embedding = await aiService.getEmbedding(enrichedQuery);
@@ -390,9 +441,6 @@ async function askAI(req, res) {
       }
     }
 
-    // -----------------------------
-    // FINAL MATCH SELECTION
-    // -----------------------------
     let finalMatches = [];
     let retrievalStrength = "none";
 
@@ -401,8 +449,12 @@ async function askAI(req, res) {
         finalMatches = matches.slice(0, 3);
         retrievalStrength = "strong";
       } else {
-        const strongMatches = matches.filter((node) => (node.finalScore || node.score || 0) >= 0.75);
-        const weakMatches = matches.filter((node) => (node.finalScore || node.score || 0) >= 0.6);
+        const strongMatches = matches.filter(
+          (node) => (node.finalScore || node.score || 0) >= 0.75
+        );
+        const weakMatches = matches.filter(
+          (node) => (node.finalScore || node.score || 0) >= 0.6
+        );
 
         if (strongMatches.length > 0) {
           finalMatches = strongMatches.slice(0, 4);
@@ -430,6 +482,19 @@ async function askAI(req, res) {
 
     answer = cleanAIText(answer);
 
+    const matchedTopic = finalMatches[0] ? getTopic(finalMatches[0]) || null : null;
+    const matchedChapter = finalMatches[0] ? getChapter(finalMatches[0]) || null : null;
+
+    console.log("Updating memory for:", userId);
+
+    await updateMemory(
+      userId,
+      question,
+      subject,
+      grade,
+      matchedTopic || "unknown"
+    );
+
     try {
       if (student && student.recentQuestions) {
         student.recentQuestions.push(question);
@@ -453,19 +518,19 @@ async function askAI(req, res) {
         totalMatches: matches.length,
         usedMatches: finalMatches.length,
         matchedTopics: finalMatches
-  .filter(item => ((item.finalScore || item.score || 0) > 0.2))
-  .map((item) => ({
-          subject: item.subject || null,
-          grade: item.grade || null,
-          chapter: getChapter(item) || null,
-          chapterCode: item.chapterCode || null,
-          topic: getTopic(item) || null,
-          topicCode: item.topicCode || null,
-          score: item.finalScore || item.score || 0
-        }))
+          .filter((item) => (item.finalScore || item.score || 0) > 0.2)
+          .map((item) => ({
+            subject: item.subject || null,
+            grade: item.grade || null,
+            chapter: getChapter(item) || null,
+            chapterCode: item.chapterCode || null,
+            topic: getTopic(item) || null,
+            topicCode: item.topicCode || null,
+            score: item.finalScore || item.score || 0
+          }))
       },
-      matchedChapter: finalMatches[0] ? getChapter(finalMatches[0]) || null : null,
-      matchedTopic: finalMatches[0] ? getTopic(finalMatches[0]) || null : null,
+      matchedChapter,
+      matchedTopic,
       mood: "explainer"
     });
   } catch (error) {
