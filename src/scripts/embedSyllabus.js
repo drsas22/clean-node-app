@@ -9,30 +9,46 @@ require("dotenv").config({
 const connectDB = require("../config/db");
 const SyllabusNode = require("../models/SyllabusNode");
 
+function cleanText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function trimToSafeLength(text, maxChars = 6000) {
+  const clean = cleanText(text);
+  if (clean.length <= maxChars) return clean;
+  return clean.slice(0, maxChars);
+}
+
+function buildEmbeddingInput(node) {
+  const parts = [
+    `Board: ${cleanText(node.board)}`,
+    `Grade: ${cleanText(node.grade)}`,
+    `Subject: ${cleanText(node.subject)}`,
+    `Chapter: ${cleanText(node.chapterName)}`,
+    `Topic: ${cleanText(node.topicName)}`,
+    `Subtopic: ${cleanText(node.subtopicName)}`,
+    `Keywords: ${(node.keywords || []).map(cleanText).join(", ")}`,
+    `Aliases: ${(node.aliases || []).map(cleanText).join(", ")}`,
+    `Content: ${cleanText(node.content)}`
+  ];
+
+  return trimToSafeLength(parts.filter(Boolean).join("\n"));
+}
+
 function buildSearchableText(node) {
-  return `
-Subject: ${node.subject || ""}
-Grade: ${node.grade || ""}
-Board: ${node.board || ""}
-Chapter: ${node.chapterName || ""}
-Topic: ${node.topicName || ""}
-Subtopic: ${node.subtopicName || ""}
+  const parts = [
+    cleanText(node.board),
+    cleanText(node.grade),
+    cleanText(node.subject),
+    cleanText(node.chapterName),
+    cleanText(node.topicName),
+    cleanText(node.subtopicName),
+    ...(node.keywords || []).map(cleanText),
+    ...(node.aliases || []).map(cleanText),
+    cleanText(node.content)
+  ];
 
-Keywords: ${(node.keywords || []).join(", ")}
-Aliases: ${(node.aliases || []).join(", ")}
-
-Concept:
-${node.searchableText || ""}
-
-Explanation:
-${node.content || ""}
-
-Meaning:
-${node.topicName || ""} means ${node.searchableText || node.content || ""}
-
-Related:
-${node.chapterName || ""} includes ${node.topicName || ""}
-`.trim();
+  return trimToSafeLength(parts.filter(Boolean).join(" | "), 3000);
 }
 
 async function getEmbedding(text) {
@@ -78,18 +94,19 @@ async function run() {
 
     for (const node of nodes) {
       try {
-        const text = buildSearchableText(node);
+        const embeddingInput = buildEmbeddingInput(node);
+        const searchableText = buildSearchableText(node);
 
-        if (!text || !text.trim()) {
+        if (!embeddingInput) {
           console.log(
             `⚠️ Skipped empty node: ${node.grade || "Unknown"} | ${node.subject || "Unknown"} | ${node.chapterName || "Unknown"} | ${node.topicName || "Unknown"}`
           );
           continue;
         }
 
-        const embedding = await getEmbedding(text);
+        const embedding = await getEmbedding(embeddingInput);
 
-        node.searchableText = text;
+        node.searchableText = searchableText;
         node.embedding = embedding;
 
         await node.save();
