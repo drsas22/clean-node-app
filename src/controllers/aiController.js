@@ -19,41 +19,8 @@ function cleanAIText(text) {
     .trim();
 }
 
-function buildKeywordFallback(question, syllabusTopics) {
-  const lowerQuestion = String(question || "").toLowerCase();
-
-  const scoredTopics = syllabusTopics.map((item) => {
-    let score = 0;
-
-    if (item.topicName && lowerQuestion.includes(String(item.topicName).toLowerCase())) {
-      score += 5;
-    }
-
-    if (item.chapterName && lowerQuestion.includes(String(item.chapterName).toLowerCase())) {
-      score += 3;
-    }
-
-    if (Array.isArray(item.keywords)) {
-      item.keywords.forEach((keyword) => {
-        if (lowerQuestion.includes(String(keyword).toLowerCase())) {
-          score += 2;
-        }
-      });
-    }
-
-    if (Array.isArray(item.aliases)) {
-      item.aliases.forEach((alias) => {
-        if (lowerQuestion.includes(String(alias).toLowerCase())) {
-          score += 2;
-        }
-      });
-    }
-
-    return { item, score };
-  });
-
-  scoredTopics.sort((a, b) => b.score - a.score);
-  return scoredTopics[0] || null;
+function escapeRegex(text) {
+  return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function normalizeGrade(input) {
@@ -83,12 +50,6 @@ function normalizeGrade(input) {
 
     "undergraduate": "undergraduate",
     "undergraduatelevel": "undergraduate",
-    "undergraduatestudent": "undergraduate",
-    "undergraduatecourse": "undergraduate",
-    "undergraduateprogram": "undergraduate",
-    "undergraduateprogramme": "undergraduate",
-    "undergraduateclass": "undergraduate",
-    "undergraduateyear": "undergraduate",
     "ug": "undergraduate",
     "college": "undergraduate",
     "bachelor": "undergraduate",
@@ -103,12 +64,6 @@ function normalizeGrade(input) {
 
     "postgraduate": "postgraduate",
     "postgraduatelevel": "postgraduate",
-    "postgraduatestudent": "postgraduate",
-    "postgraduatecourse": "postgraduate",
-    "postgraduateprogram": "postgraduate",
-    "postgraduateprogramme": "postgraduate",
-    "postgraduateclass": "postgraduate",
-    "postgraduateyear": "postgraduate",
     "pg": "postgraduate",
     "master": "postgraduate",
     "masters": "postgraduate",
@@ -142,6 +97,12 @@ function normalizeStoredGrade(input) {
     .trim();
 }
 
+function formatStoredGrade(grade) {
+  if (!grade) return "";
+  if (/^\d+$/.test(String(grade))) return `Grade ${grade}`;
+  return String(grade).trim();
+}
+
 function normalizeMode(input) {
   const mode = String(input || "").trim().toLowerCase();
   return mode === "exam" ? "exam" : "study";
@@ -154,33 +115,44 @@ function normalizeSubject(input) {
 function getChapter(node) {
   return node.chapter || node.chapterName || "";
 }
-function escapeRegex(text) {
-  return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function getTopic(node) {
+  return node.topic || node.topicName || "";
 }
 
 function extractTopic(question) {
   const q = String(question || "").toLowerCase();
 
   const knownTopics = [
+    "addition",
+    "subtraction",
+    "multiplication",
+    "division",
+    "numbers",
+    "fractions",
+    "plants",
+    "body parts",
     "photosynthesis",
     "respiration",
-    "nutrition in plants",
     "digestion",
+    "nutrition",
     "reproduction",
     "cell",
-    "tissues",
+    "tissue",
     "force",
     "motion",
     "friction",
     "light",
+    "reflection",
+    "refraction",
     "electricity",
-    "acids",
-    "bases",
-    "metals",
-    "non-metals",
-    "crop production",
-    "microorganisms",
-    "combustion",
+    "magnetism",
+    "acid",
+    "base",
+    "salt",
+    "atom",
+    "molecule",
+    "heat",
     "sound"
   ];
 
@@ -192,8 +164,40 @@ function extractTopic(question) {
 
   return "";
 }
-function getTopic(node) {
-  return node.topic || node.topicName || "";
+
+function buildKeywordFallback(question, syllabusTopics) {
+  const lowerQuestion = String(question || "").toLowerCase();
+
+  const scoredTopics = syllabusTopics.map((item) => {
+    let bonus = 0;
+
+    const topic = String(item.topicName || item.topic || "").toLowerCase();
+    const chapter = String(item.chapterName || item.chapter || "").toLowerCase();
+
+    if (topic && lowerQuestion.includes(topic)) bonus += 5;
+    if (chapter && lowerQuestion.includes(chapter)) bonus += 3;
+
+    if (Array.isArray(item.keywords)) {
+      item.keywords.forEach((keyword) => {
+        if (lowerQuestion.includes(String(keyword).toLowerCase())) bonus += 2;
+      });
+    }
+
+    if (Array.isArray(item.aliases)) {
+      item.aliases.forEach((alias) => {
+        if (lowerQuestion.includes(String(alias).toLowerCase())) bonus += 2;
+      });
+    }
+
+    return {
+      ...item,
+      lexicalBonus: bonus,
+      finalScore: (item.score || 0) + bonus / 10
+    };
+  });
+
+  scoredTopics.sort((a, b) => (b.finalScore || 0) - (a.finalScore || 0));
+  return scoredTopics;
 }
 
 function formatSyllabusContext(nodes = []) {
@@ -219,9 +223,8 @@ async function askAI(req, res) {
     const grade = normalizeGrade(req.body.grade);
     const subject = normalizeSubject(req.body.subject);
     const mode = normalizeMode(req.body.mode);
-    const detectedTopic = extractTopic(question);
     const studentId = req.body.studentId || null;
-    
+    const detectedTopic = extractTopic(question);
 
     if (!question) {
       return res.status(400).json({
@@ -246,134 +249,155 @@ async function askAI(req, res) {
       }
     }
 
-    const enrichedQuery = [
-  question,
-  subject ? `subject ${subject}` : "",
-  grade ? `grade ${grade}` : "",
-  detectedTopic ? `topic ${detectedTopic}` : ""
-]
-  .filter(Boolean)
-  .join(" ");
-
-const embedding = await aiService.getEmbedding(enrichedQuery);
     let matches = [];
-    
-    const vectorFilter = {};
+    let retrievalMethod = "none";
 
-if (subject) {
-  vectorFilter.subject = { $regex: `^${escapeRegex(subject)}$`, $options: "i" };
-}
+    // -----------------------------
+    // STAGE 1: EXACT / LEXICAL SEARCH
+    // -----------------------------
+    const lexicalQuery = {
+      active: true
+    };
 
-if (grade) {
-  vectorFilter.grade = { $regex: `^(grade|class)?\\s*${escapeRegex(grade)}$`, $options: "i" };
-}
-    try {
-      matches = await SyllabusNode.aggregate([
-  {
-    $vectorSearch: {
-      index: "vector_index",
-      path: "embedding",
-      queryVector: embedding,
-      numCandidates: 150,
-      limit: 20,
-      filter: vectorFilter
-    }
-  },
-  {
-    $project: {
-      subject: 1,
-      grade: 1,
-      board: 1,
-      chapter: 1,
-      chapterName: 1,
-      chapterCode: 1,
-      topic: 1,
-      topicName: 1,
-      topicCode: 1,
-      content: 1,
-      searchableText: 1,
-      keywords: 1,
-      aliases: 1,
-      score: { $meta: "vectorSearchScore" }
-    }
-  }
-]);
-    } catch (vectorError) {
-      console.error("Vector search failed:", vectorError.message);
-      matches = [];
+    if (subject) {
+      lexicalQuery.subject = new RegExp(`^${escapeRegex(subject)}$`, "i");
     }
 
-     
-    const wantedSubject = String(subject || "").trim().toLowerCase();
-if (detectedTopic) {
-  const topicLower = detectedTopic.toLowerCase();
+    if (grade) {
+      lexicalQuery.grade = new RegExp(`^${escapeRegex(formatStoredGrade(grade))}$`, "i");
+    }
 
-  matches.sort((a, b) => {
-    const aExact =
-      String(a.topicName || a.topic || "").toLowerCase().includes(topicLower) ||
-      String(a.chapterName || a.chapter || "").toLowerCase().includes(topicLower);
+    const lexicalOr = [];
 
-    const bExact =
-      String(b.topicName || b.topic || "").toLowerCase().includes(topicLower) ||
-      String(b.chapterName || b.chapter || "").toLowerCase().includes(topicLower);
+    if (detectedTopic) {
+      lexicalOr.push(
+        { topicName: new RegExp(escapeRegex(detectedTopic), "i") },
+        { chapterName: new RegExp(escapeRegex(detectedTopic), "i") },
+        { searchableText: new RegExp(escapeRegex(detectedTopic), "i") },
+        { content: new RegExp(escapeRegex(detectedTopic), "i") },
+        { keywords: { $elemMatch: { $regex: escapeRegex(detectedTopic), $options: "i" } } },
+        { aliases: { $elemMatch: { $regex: escapeRegex(detectedTopic), $options: "i" } } }
+      );
+    }
 
-    if (aExact && !bExact) return -1;
-    if (!aExact && bExact) return 1;
+    const importantWords = String(question)
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter(Boolean)
+      .filter((w) => !["what", "is", "are", "the", "of", "in", "on", "for", "a", "an", "explain", "define"].includes(w))
+      .slice(0, 5);
 
-    return (b.score || 0) - (a.score || 0);
-  });
-}
-
-    const exactGradeAndSubjectMatches = matches.filter((node) => {
-      const nodeGrade = normalizeStoredGrade(node.grade);
-      const nodeSubject = String(node.subject || "").trim().toLowerCase();
-
-      const gradeOk = grade ? nodeGrade === grade : true;
-      const subjectOk = subject ? nodeSubject === wantedSubject : true;
-
-      return gradeOk && subjectOk;
+    importantWords.forEach((word) => {
+      if (word.length >= 3) {
+        lexicalOr.push(
+          { topicName: new RegExp(`\\b${escapeRegex(word)}\\b`, "i") },
+          { chapterName: new RegExp(`\\b${escapeRegex(word)}\\b`, "i") },
+          { searchableText: new RegExp(`\\b${escapeRegex(word)}\\b`, "i") },
+          { content: new RegExp(`\\b${escapeRegex(word)}\\b`, "i") },
+          { keywords: { $elemMatch: { $regex: `\\b${escapeRegex(word)}\\b`, $options: "i" } } },
+          { aliases: { $elemMatch: { $regex: `\\b${escapeRegex(word)}\\b`, $options: "i" } } }
+        );
+      }
     });
 
-    const exactGradeMatches = matches.filter((node) => {
-      const nodeGrade = normalizeStoredGrade(node.grade);
-      return grade ? nodeGrade === grade : true;
-    });
+    if (lexicalOr.length > 0) {
+      const lexicalMatches = await SyllabusNode.find({
+        ...lexicalQuery,
+        $or: lexicalOr
+      })
+        .limit(20)
+        .lean();
 
-    const exactSubjectMatches = matches.filter((node) => {
-      const nodeSubject = String(node.subject || "").trim().toLowerCase();
-      return subject ? nodeSubject === wantedSubject : true;
-    });
-
-    if (exactGradeAndSubjectMatches.length > 0) {
-      matches = exactGradeAndSubjectMatches;
-    } else if (exactGradeMatches.length > 0) {
-      matches = exactGradeMatches;
-    } else if (exactSubjectMatches.length > 0) {
-      matches = exactSubjectMatches;
-    }
-
-    let strongMatches = matches.filter((node) => (node.score || 0) >= 0.75);
-    let weakMatches = matches.filter((node) => (node.score || 0) >= 0.6);
-
-    if (!strongMatches.length && !weakMatches.length && matches.length) {
-      const bestKeyword = buildKeywordFallback(question, matches);
-      if (bestKeyword && bestKeyword.score > 0) {
-        weakMatches = [bestKeyword.item];
+      if (lexicalMatches.length > 0) {
+        matches = buildKeywordFallback(question, lexicalMatches).slice(0, 5);
+        retrievalMethod = "lexical";
       }
     }
 
+    // -----------------------------
+    // STAGE 2: VECTOR FALLBACK
+    // -----------------------------
+    if (!matches.length) {
+      const enrichedQuery = `${question} ${subject} grade ${grade} ${detectedTopic}`.trim();
+      const embedding = await aiService.getEmbedding(enrichedQuery);
+
+      const vectorFilter = { active: true };
+
+      if (subject) {
+        vectorFilter.subject = subject;
+      }
+
+      if (grade) {
+        vectorFilter.grade = formatStoredGrade(grade);
+      }
+
+      try {
+        const vectorMatches = await SyllabusNode.aggregate([
+          {
+            $vectorSearch: {
+              index: "vector_index",
+              path: "embedding",
+              queryVector: embedding,
+              numCandidates: 150,
+              limit: 20,
+              filter: vectorFilter
+            }
+          },
+          {
+            $project: {
+              subject: 1,
+              grade: 1,
+              board: 1,
+              chapter: 1,
+              chapterName: 1,
+              chapterCode: 1,
+              topic: 1,
+              topicName: 1,
+              topicCode: 1,
+              content: 1,
+              searchableText: 1,
+              keywords: 1,
+              aliases: 1,
+              score: { $meta: "vectorSearchScore" }
+            }
+          }
+        ]);
+
+        if (vectorMatches.length > 0) {
+          matches = buildKeywordFallback(question, vectorMatches);
+          retrievalMethod = "vector";
+        }
+      } catch (vectorError) {
+        console.error("Vector search failed:", vectorError.message);
+      }
+    }
+
+    // -----------------------------
+    // FINAL MATCH SELECTION
+    // -----------------------------
     let finalMatches = [];
     let retrievalStrength = "none";
 
-    if (strongMatches.length > 0) {
-      finalMatches = strongMatches.slice(0, 4);
-      retrievalStrength = "strong";
-    } else if (weakMatches.length > 0) {
-      finalMatches = weakMatches.slice(0, 3);
-      retrievalStrength = "weak";
-    } else if (matches.length > 0) {
-      finalMatches = matches.slice(0, 2);
-      retrievalStrength = "weak";
+    if (matches.length > 0) {
+      if (retrievalMethod === "lexical") {
+        finalMatches = matches.slice(0, 3);
+        retrievalStrength = "strong";
+      } else {
+        const strongMatches = matches.filter((node) => (node.finalScore || node.score || 0) >= 0.75);
+        const weakMatches = matches.filter((node) => (node.finalScore || node.score || 0) >= 0.6);
+
+        if (strongMatches.length > 0) {
+          finalMatches = strongMatches.slice(0, 4);
+          retrievalStrength = "strong";
+        } else if (weakMatches.length > 0) {
+          finalMatches = weakMatches.slice(0, 3);
+          retrievalStrength = "weak";
+        } else {
+          finalMatches = matches.slice(0, 2);
+          retrievalStrength = "weak";
+        }
+      }
     }
 
     const syllabusContext = formatSyllabusContext(finalMatches);
@@ -405,6 +429,8 @@ if (detectedTopic) {
         mode,
         grade: grade || null,
         subject: subject || null,
+        detectedTopic: detectedTopic || null,
+        retrievalMethod,
         contextUsed: finalMatches.length > 0,
         retrievalStrength,
         totalMatches: matches.length,
@@ -416,7 +442,7 @@ if (detectedTopic) {
           chapterCode: item.chapterCode || null,
           topic: getTopic(item) || null,
           topicCode: item.topicCode || null,
-          score: item.score || 0
+          score: item.finalScore || item.score || 0
         }))
       },
       matchedChapter: finalMatches[0] ? getChapter(finalMatches[0]) || null : null,
