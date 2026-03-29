@@ -57,9 +57,15 @@ function buildKeywordFallback(question, syllabusTopics) {
 }
 
 function normalizeGrade(input) {
-  const g = String(input || "").trim().toLowerCase();
+  let g = String(input || "").trim().toLowerCase();
 
   if (!g) return "";
+
+  g = g
+    .replace(/^grade\s*/i, "")
+    .replace(/^class\s*/i, "")
+    .replace(/\s+/g, "")
+    .trim();
 
   const gradeMap = {
     "1st": "1",
@@ -74,8 +80,20 @@ function normalizeGrade(input) {
     "10th": "10",
     "11th": "11",
     "12th": "12",
+
     "undergraduate": "undergraduate",
-    "under graduate": "undergraduate",
+    "undergraduatelevel": "undergraduate",
+    "undergraduatestudent": "undergraduate",
+    "undergraduatecourse": "undergraduate",
+    "undergraduateprogram": "undergraduate",
+    "undergraduateprogramme": "undergraduate",
+    "undergraduateclass": "undergraduate",
+    "undergraduateyear": "undergraduate",
+    "undergraduatembbs": "undergraduate",
+    "undergraduatebds": "undergraduate",
+    "undergraduatebams": "undergraduate",
+    "undergraduatebhms": "undergraduate",
+    "undergraduatebpt": "undergraduate",
     "ug": "undergraduate",
     "college": "undergraduate",
     "bachelor": "undergraduate",
@@ -87,8 +105,15 @@ function normalizeGrade(input) {
     "bpt": "undergraduate",
     "nursing": "undergraduate",
     "engineering": "undergraduate",
+
     "postgraduate": "postgraduate",
-    "post graduate": "postgraduate",
+    "postgraduatelevel": "postgraduate",
+    "postgraduatestudent": "postgraduate",
+    "postgraduatecourse": "postgraduate",
+    "postgraduateprogram": "postgraduate",
+    "postgraduateprogramme": "postgraduate",
+    "postgraduateclass": "postgraduate",
+    "postgraduateyear": "postgraduate",
     "pg": "postgraduate",
     "master": "postgraduate",
     "masters": "postgraduate",
@@ -97,6 +122,7 @@ function normalizeGrade(input) {
     "mds": "postgraduate",
     "resident": "postgraduate",
     "residency": "postgraduate",
+
     "research": "researcher",
     "researcher": "researcher",
     "researchers": "researcher",
@@ -108,7 +134,6 @@ function normalizeGrade(input) {
 
   return gradeMap[g] || g;
 }
-
 // 🔥 NEW FIX (IMPORTANT)
 function normalizeStoredGrade(input) {
   const g = String(input || "").trim().toLowerCase();
