@@ -1,34 +1,40 @@
 const path = require("path");
+const mongoose = require("mongoose");
+const axios = require("axios");
 
-// ✅ Load .env correctly
 require("dotenv").config({
   path: path.resolve(__dirname, "../../.env"),
 });
 
-const mongoose = require("mongoose");
 const connectDB = require("../config/db");
 const SyllabusNode = require("../models/SyllabusNode");
-const axios = require("axios");
 
-// ✅ Debug key (only first few chars)
-console.log("KEY USED:", process.env.OPENAI_API_KEY?.slice(0, 10));
-
-// Build searchable text
 function buildSearchableText(node) {
-  return [
-    node.board,
-    node.grade,
-    node.subject,
-    node.chapterName,
-    node.topicName,
-    ...(node.keywords || []),
-    ...(node.aliases || []),
-  ]
-    .filter(Boolean)
-    .join(" | ");
+  return `
+Subject: ${node.subject || ""}
+Grade: ${node.grade || ""}
+Board: ${node.board || ""}
+Chapter: ${node.chapterName || ""}
+Topic: ${node.topicName || ""}
+Subtopic: ${node.subtopicName || ""}
+
+Keywords: ${(node.keywords || []).join(", ")}
+Aliases: ${(node.aliases || []).join(", ")}
+
+Concept:
+${node.searchableText || ""}
+
+Explanation:
+${node.content || ""}
+
+Meaning:
+${node.topicName || ""} means ${node.searchableText || node.content || ""}
+
+Related:
+${node.chapterName || ""} includes ${node.topicName || ""}
+`.trim();
 }
 
-// ✅ WORKING embedding function (NO SDK)
 async function getEmbedding(text) {
   try {
     const res = await axios.post(
@@ -42,6 +48,7 @@ async function getEmbedding(text) {
           Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
           "Content-Type": "application/json",
         },
+        timeout: 60000,
       }
     );
 
@@ -54,18 +61,32 @@ async function getEmbedding(text) {
 
 async function run() {
   try {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error("OPENAI_API_KEY is missing in .env");
+    }
+
     await connectDB();
 
     const nodes = await SyllabusNode.find({ active: true });
 
     if (!nodes.length) {
-      console.log("❌ No syllabus data found");
+      console.log("❌ No active syllabus data found");
       process.exit(0);
     }
+
+    console.log(`🚀 Found ${nodes.length} active syllabus nodes`);
 
     for (const node of nodes) {
       try {
         const text = buildSearchableText(node);
+
+        if (!text || !text.trim()) {
+          console.log(
+            `⚠️ Skipped empty node: ${node.grade || "Unknown"} | ${node.subject || "Unknown"} | ${node.chapterName || "Unknown"} | ${node.topicName || "Unknown"}`
+          );
+          continue;
+        }
+
         const embedding = await getEmbedding(text);
 
         node.searchableText = text;
@@ -74,18 +95,24 @@ async function run() {
         await node.save();
 
         console.log(
-          `✅ Embedded: ${node.grade} | ${node.subject} | ${node.chapterName}`
+          `✅ Embedded: ${node.grade || "Unknown"} | ${node.subject || "Unknown"} | ${node.chapterName || "Unknown"} | ${node.topicName || "Unknown"}`
         );
       } catch (err) {
-        console.log(`❌ Failed: ${node.chapterName}`);
+        console.log(
+          `❌ Failed: ${node.grade || "Unknown"} | ${node.subject || "Unknown"} | ${node.chapterName || "Unknown"} | ${node.topicName || "Unknown"}`
+        );
+        console.error(err.response?.data || err.message);
       }
     }
 
     console.log("🔥 ALL EMBEDDINGS COMPLETED");
-
     await mongoose.disconnect();
+    process.exit(0);
   } catch (err) {
     console.error("Script Error:", err.message);
+    try {
+      await mongoose.disconnect();
+    } catch (_) {}
     process.exit(1);
   }
 }

@@ -154,7 +154,44 @@ function normalizeSubject(input) {
 function getChapter(node) {
   return node.chapter || node.chapterName || "";
 }
+function escapeRegex(text) {
+  return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
+function extractTopic(question) {
+  const q = String(question || "").toLowerCase();
+
+  const knownTopics = [
+    "photosynthesis",
+    "respiration",
+    "nutrition in plants",
+    "digestion",
+    "reproduction",
+    "cell",
+    "tissues",
+    "force",
+    "motion",
+    "friction",
+    "light",
+    "electricity",
+    "acids",
+    "bases",
+    "metals",
+    "non-metals",
+    "crop production",
+    "microorganisms",
+    "combustion",
+    "sound"
+  ];
+
+  for (const topic of knownTopics) {
+    if (q.includes(topic)) {
+      return topic;
+    }
+  }
+
+  return "";
+}
 function getTopic(node) {
   return node.topic || node.topicName || "";
 }
@@ -182,7 +219,9 @@ async function askAI(req, res) {
     const grade = normalizeGrade(req.body.grade);
     const subject = normalizeSubject(req.body.subject);
     const mode = normalizeMode(req.body.mode);
+    const detectedTopic = extractTopic(question);
     const studentId = req.body.studentId || null;
+    
 
     if (!question) {
       return res.status(400).json({
@@ -207,46 +246,83 @@ async function askAI(req, res) {
       }
     }
 
-    const embedding = await aiService.getEmbedding(question);
+    const enrichedQuery = [
+  question,
+  subject ? `subject ${subject}` : "",
+  grade ? `grade ${grade}` : "",
+  detectedTopic ? `topic ${detectedTopic}` : ""
+]
+  .filter(Boolean)
+  .join(" ");
 
+const embedding = await aiService.getEmbedding(enrichedQuery);
     let matches = [];
+    
+    const vectorFilter = {};
 
+if (subject) {
+  vectorFilter.subject = { $regex: `^${escapeRegex(subject)}$`, $options: "i" };
+}
+
+if (grade) {
+  vectorFilter.grade = { $regex: `^(grade|class)?\\s*${escapeRegex(grade)}$`, $options: "i" };
+}
     try {
       matches = await SyllabusNode.aggregate([
-        {
-          $vectorSearch: {
-            index: "vector_index",
-            path: "embedding",
-            queryVector: embedding,
-            numCandidates: 150,
-            limit: 20
-          }
-        },
-        {
-          $project: {
-            subject: 1,
-            grade: 1,
-            board: 1,
-            chapter: 1,
-            chapterName: 1,
-            chapterCode: 1,
-            topic: 1,
-            topicName: 1,
-            topicCode: 1,
-            content: 1,
-            searchableText: 1,
-            keywords: 1,
-            aliases: 1,
-            score: { $meta: "vectorSearchScore" }
-          }
-        }
-      ]);
+  {
+    $vectorSearch: {
+      index: "vector_index",
+      path: "embedding",
+      queryVector: embedding,
+      numCandidates: 150,
+      limit: 20,
+      filter: vectorFilter
+    }
+  },
+  {
+    $project: {
+      subject: 1,
+      grade: 1,
+      board: 1,
+      chapter: 1,
+      chapterName: 1,
+      chapterCode: 1,
+      topic: 1,
+      topicName: 1,
+      topicCode: 1,
+      content: 1,
+      searchableText: 1,
+      keywords: 1,
+      aliases: 1,
+      score: { $meta: "vectorSearchScore" }
+    }
+  }
+]);
     } catch (vectorError) {
       console.error("Vector search failed:", vectorError.message);
       matches = [];
     }
 
+     
     const wantedSubject = String(subject || "").trim().toLowerCase();
+if (detectedTopic) {
+  const topicLower = detectedTopic.toLowerCase();
+
+  matches.sort((a, b) => {
+    const aExact =
+      String(a.topicName || a.topic || "").toLowerCase().includes(topicLower) ||
+      String(a.chapterName || a.chapter || "").toLowerCase().includes(topicLower);
+
+    const bExact =
+      String(b.topicName || b.topic || "").toLowerCase().includes(topicLower) ||
+      String(b.chapterName || b.chapter || "").toLowerCase().includes(topicLower);
+
+    if (aExact && !bExact) return -1;
+    if (!aExact && bExact) return 1;
+
+    return (b.score || 0) - (a.score || 0);
+  });
+}
 
     const exactGradeAndSubjectMatches = matches.filter((node) => {
       const nodeGrade = normalizeStoredGrade(node.grade);
