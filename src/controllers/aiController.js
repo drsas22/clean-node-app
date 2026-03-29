@@ -109,6 +109,19 @@ function normalizeGrade(input) {
   return gradeMap[g] || g;
 }
 
+// 🔥 NEW FIX (IMPORTANT)
+function normalizeStoredGrade(input) {
+  const g = String(input || "").trim().toLowerCase();
+
+  if (!g) return "";
+
+  return g
+    .replace(/^grade\s*/i, "")
+    .replace(/^class\s*/i, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
 function normalizeMode(input) {
   const mode = String(input || "").trim().toLowerCase();
   return mode === "exam" ? "exam" : "study";
@@ -119,22 +132,11 @@ function normalizeSubject(input) {
 }
 
 function getChapter(node) {
-  return (
-    node.chapter ||
-    node.chapterName ||
-    node.chapter_title ||
-    ""
-  );
+  return node.chapter || node.chapterName || "";
 }
 
 function getTopic(node) {
-  return (
-    node.topic ||
-    node.topicName ||
-    node.title ||
-    node.heading ||
-    ""
-  );
+  return node.topic || node.topicName || "";
 }
 
 function formatSyllabusContext(nodes = []) {
@@ -224,13 +226,18 @@ async function askAI(req, res) {
       matches = [];
     }
 
+    // 🔥 FIXED GRADE FILTER
     if (grade) {
-      const gradeFiltered = matches.filter(
-        (node) => String(node.grade || "").trim().toLowerCase() === grade
+      const exactGradeMatches = matches.filter(
+        (node) => normalizeStoredGrade(node.grade) === grade
       );
-      if (gradeFiltered.length) matches = gradeFiltered;
+
+      if (exactGradeMatches.length > 0) {
+        matches = exactGradeMatches;
+      }
     }
 
+    // SUBJECT FILTER
     if (subject) {
       const subjectLower = subject.toLowerCase();
       const subjectFiltered = matches.filter(
@@ -242,7 +249,7 @@ async function askAI(req, res) {
     let strongMatches = matches.filter((node) => (node.score || 0) >= 0.75);
     let weakMatches = matches.filter((node) => (node.score || 0) >= 0.6);
 
-    // keyword fallback support if vector scores are weak
+    // keyword fallback
     if (!strongMatches.length && !weakMatches.length && matches.length) {
       const bestKeyword = buildKeywordFallback(question, matches);
       if (bestKeyword && bestKeyword.score > 0) {
