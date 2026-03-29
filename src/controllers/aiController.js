@@ -7,19 +7,36 @@ function cleanAIText(text) {
 
   return text
     .replace(/\\n/g, "\n")
-    .replace(/\\r/g, "\r")
-    .replace(/\\text\{.*?\}/g, "")
-    .replace(/\\\\/g, "")
-    .replace(/\r/g, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/^[ \t]*-[ \t]+/gm, "• ")
-    .replace(/^[ \t]*\d+\.[ \t]+/gm, "• ")
-    .replace(/\n/g, " \n")
-    .replace(/[ \t]+\n/g, "\n")
-    .trim();
-}
+    .replace(/\\r/g, "")
 
-function escapeRegex(text) {
+    // remove ALL latex wrappers
+    .replace(/\\\[(.*?)\\\]/gs, "$1")
+    .replace(/\\\((.*?)\\\)/gs, "$1")
+
+    // convert fractions
+    .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "$1 / $2")
+
+    // remove power latex like x^{2}
+    .replace(/\^\{([^{}]+)\}/g, "^$1")
+
+    // convert symbols
+    .replace(/\\times/g, "×")
+    .replace(/\\cdot/g, "·")
+    .replace(/\\sqrt\{([^{}]+)\}/g, "sqrt($1)")
+    .replace(/\\pi/g, "pi")
+
+    // REMOVE ANY REMAINING LATEX COMMANDS
+    .replace(/\\[a-zA-Z]+/g, "")
+
+    // remove stray slashes
+    .replace(/\\/g, "")
+
+    // bullets
+    .replace(/^[ \t]*-[ \t]+/gm, "• ")
+
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}function escapeRegex(text) {
   return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 

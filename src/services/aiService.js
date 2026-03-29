@@ -45,6 +45,19 @@ Presentation rules:
 - Keep headings clean
 - Sound natural and teacher-like
 
+Formatting rules for maths, physics and chemistry:
+- Never use LaTeX
+- Never use \\( \\), \\[ \\], \\frac, superscript syntax, or equation markup
+- Write every formula in plain text
+- Use simple readable notation like:
+  - F = m × a
+  - speed = distance / time
+  - molarity = moles of solute / litres of solution
+  - a^2 + b^2 = c^2
+- Keep formulas short and mobile-friendly
+- If a formula is needed, write it on its own line
+- Prefer plain-text symbols over special formatting
+
 Mode behavior:
 - In STUDY mode: teach conceptually, clearly, and with examples
 - In EXAM mode: be concise, pointwise, and marks-oriented
@@ -94,19 +107,54 @@ function getGradeInstruction(grade) {
   }
 
   if (
-    ["ug", "undergraduate", "under graduate", "college", "bachelor", "bachelors", "mbbs", "bds", "bams", "bhms", "bpt", "nursing", "engineering"].includes(g)
+    [
+      "ug",
+      "undergraduate",
+      "under graduate",
+      "college",
+      "bachelor",
+      "bachelors",
+      "mbbs",
+      "bds",
+      "bams",
+      "bhms",
+      "bpt",
+      "nursing",
+      "engineering"
+    ].includes(g)
   ) {
     return "Use undergraduate-level explanation with correct terminology, conceptual depth, and practical clarity. Explain mechanisms, relationships, and important applied points without oversimplifying.";
   }
 
   if (
-    ["pg", "postgraduate", "post graduate", "masters", "master", "md", "ms", "mds", "residency", "resident", "speciality", "specialty"].includes(g)
+    [
+      "pg",
+      "postgraduate",
+      "post graduate",
+      "masters",
+      "master",
+      "md",
+      "ms",
+      "mds",
+      "residency",
+      "resident",
+      "speciality",
+      "specialty"
+    ].includes(g)
   ) {
     return "Use postgraduate-level explanation with higher precision, deeper conceptual detail, and stronger clinical, analytical, or subject-specific framing. Include important distinctions, mechanisms, and advanced reasoning where relevant.";
   }
 
   if (
-    ["research", "researcher", "researchers", "phd", "doctorate", "doctoral", "scientist"].includes(g)
+    [
+      "research",
+      "researcher",
+      "researchers",
+      "phd",
+      "doctorate",
+      "doctoral",
+      "scientist"
+    ].includes(g)
   ) {
     return "Use researcher-level explanation with rigorous terminology, nuanced reasoning, advanced conceptual framing, and where relevant include mechanisms, limitations, comparisons, and critical interpretation. Keep the explanation clear, structured, and academically strong.";
   }
@@ -117,10 +165,40 @@ function getGradeInstruction(grade) {
 function getOutputFormat(mode, grade) {
   const g = String(grade || "").trim().toLowerCase();
 
-  const isAdvanced =
-    ["ug", "undergraduate", "under graduate", "college", "bachelor", "bachelors", "mbbs", "bds", "bams", "bhms", "bpt", "nursing", "engineering",
-     "pg", "postgraduate", "post graduate", "masters", "master", "md", "ms", "mds", "residency", "resident", "speciality", "specialty",
-     "research", "researcher", "researchers", "phd", "doctorate", "doctoral", "scientist"].includes(g);
+  const isAdvanced = [
+    "ug",
+    "undergraduate",
+    "under graduate",
+    "college",
+    "bachelor",
+    "bachelors",
+    "mbbs",
+    "bds",
+    "bams",
+    "bhms",
+    "bpt",
+    "nursing",
+    "engineering",
+    "pg",
+    "postgraduate",
+    "post graduate",
+    "masters",
+    "master",
+    "md",
+    "ms",
+    "mds",
+    "residency",
+    "resident",
+    "speciality",
+    "specialty",
+    "research",
+    "researcher",
+    "researchers",
+    "phd",
+    "doctorate",
+    "doctoral",
+    "scientist"
+  ].includes(g);
 
   if (String(mode).toLowerCase() === "exam") {
     return `
@@ -167,6 +245,31 @@ function getRetrievalInstruction(retrievalStrength) {
   return "No reliable syllabus context was found. Answer helpfully, clearly, and at the student's level using general knowledge.";
 }
 
+function getSubjectFormattingRule(subject) {
+  const s = String(subject || "").trim().toLowerCase();
+
+  if (["maths", "mathematics", "science", "physics", "chemistry"].includes(s)) {
+    return `
+Formatting for formulas:
+- Use plain text formulas only
+- Never use LaTeX
+- Write formulas like:
+  speed = distance / time
+  F = m × a
+  molarity = moles of solute / litres of solution
+  a^2 + b^2 = c^2
+  sin A = opposite / hypotenuse
+- Put formulas on separate lines when useful
+- Keep formulas simple and readable on mobile
+`;
+  }
+
+  return `
+Formatting:
+- Keep output simple, clean and readable
+`;
+}
+
 function buildUserPrompt({
   question,
   grade,
@@ -194,6 +297,9 @@ ${getGradeInstruction(grade)}
 Mode Instruction:
 ${getModeInstruction(mode)}
 
+Subject Formatting Rule:
+${getSubjectFormattingRule(subject)}
+
 Retrieval Strength:
 ${retrievalStrength}
 
@@ -213,6 +319,10 @@ Extra rules:
 - When a concept is abstract, use one simple example or analogy if helpful
 - For undergraduate, postgraduate, and researcher levels, increase rigor and precision appropriately
 - Do not mention syllabus retrieval, context blocks, or internal processing
+- For maths, physics and chemistry, write formulas in plain text only
+- Do not use LaTeX or mathematical markup
+- Keep equations easy to read on a phone screen
+- For formula-based subjects, give only essential formulas unless more are requested
 `;
 }
 
