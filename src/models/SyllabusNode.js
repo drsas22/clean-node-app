@@ -1,11 +1,10 @@
 const mongoose = require("mongoose");
 
-const SyllabusNodeSchema = new mongoose.Schema({
-  board: { type: String, required: true },          // CBSE, ICSE, etc.
-  stateBoard: { type: String, default: "" },        // Maharashtra, etc.
-
-  grade: { type: String, required: true },          // Grade 8, Grade 10
-  subject: { type: String, required: true },        // Science, Math
+const syllabusNodeSchema = new mongoose.Schema({
+  board: { type: String, required: true },
+  stateBoard: { type: String, default: "" },
+  grade: { type: String, required: true },
+  subject: { type: String, required: true },
 
   chapterCode: { type: String, required: true },
   chapterNumber: { type: Number },
@@ -14,17 +13,20 @@ const SyllabusNodeSchema = new mongoose.Schema({
   topicCode: { type: String, required: true },
   topicName: { type: String, required: true },
 
-  keywords: [{ type: String }],                     // for matching
-  aliases: [{ type: String }],                      // alternative names
+  keywords: { type: [String], default: [] },
+  aliases: { type: [String], default: [] },
 
   difficultyLevel: {
     type: String,
-    enum: ["easy", "middle", "advanced"],
     default: "middle"
   },
 
-  active: { type: Boolean, default: true }
+  active: { type: Boolean, default: true },
+
+  // ADD THESE
+  searchableText: { type: String, default: "" },
+  embedding: { type: [Number], default: [] }
 
 }, { timestamps: true });
 
-module.exports = mongoose.model("SyllabusNode", SyllabusNodeSchema);
+module.exports = mongoose.model("SyllabusNode", syllabusNodeSchema);

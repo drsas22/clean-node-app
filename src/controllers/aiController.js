@@ -8,36 +8,28 @@ function cleanAIText(text) {
   return text
     .replace(/\\n/g, "\n")
     .replace(/\\r/g, "\r")
-
-    // remove LaTeX junk
     .replace(/\\text\{.*?\}/g, "")
     .replace(/\\\\/g, "")
-
-    // normalize spacing
     .replace(/\r/g, "")
     .replace(/\n{3,}/g, "\n\n")
-
-    // bullets
     .replace(/^[ \t]*-[ \t]+/gm, "• ")
     .replace(/^[ \t]*\d+\.[ \t]+/gm, "• ")
-
-    // 🔥 ADD THIS LINE (important)
-    .replace(/\n/g, " \n")   // makes UI + voice better
-
+    .replace(/\n/g, " \n")
     .replace(/[ \t]+\n/g, "\n")
     .trim();
 }
+
 function buildKeywordFallback(question, syllabusTopics) {
-  const lowerQuestion = question.toLowerCase();
+  const lowerQuestion = String(question || "").toLowerCase();
 
   const scoredTopics = syllabusTopics.map((item) => {
     let score = 0;
 
-    if (item.topicName && lowerQuestion.includes(item.topicName.toLowerCase())) {
+    if (item.topicName && lowerQuestion.includes(String(item.topicName).toLowerCase())) {
       score += 5;
     }
 
-    if (item.chapterName && lowerQuestion.includes(item.chapterName.toLowerCase())) {
+    if (item.chapterName && lowerQuestion.includes(String(item.chapterName).toLowerCase())) {
       score += 3;
     }
 
@@ -64,18 +56,111 @@ function buildKeywordFallback(question, syllabusTopics) {
   return scoredTopics[0] || null;
 }
 
-const askAI = async (req, res) => {
+function normalizeGrade(input) {
+  const g = String(input || "").trim().toLowerCase();
+
+  if (!g) return "";
+
+  const gradeMap = {
+    "1st": "1",
+    "2nd": "2",
+    "3rd": "3",
+    "4th": "4",
+    "5th": "5",
+    "6th": "6",
+    "7th": "7",
+    "8th": "8",
+    "9th": "9",
+    "10th": "10",
+    "11th": "11",
+    "12th": "12",
+    "undergraduate": "undergraduate",
+    "under graduate": "undergraduate",
+    "ug": "undergraduate",
+    "college": "undergraduate",
+    "bachelor": "undergraduate",
+    "bachelors": "undergraduate",
+    "mbbs": "undergraduate",
+    "bds": "undergraduate",
+    "bams": "undergraduate",
+    "bhms": "undergraduate",
+    "bpt": "undergraduate",
+    "nursing": "undergraduate",
+    "engineering": "undergraduate",
+    "postgraduate": "postgraduate",
+    "post graduate": "postgraduate",
+    "pg": "postgraduate",
+    "master": "postgraduate",
+    "masters": "postgraduate",
+    "md": "postgraduate",
+    "ms": "postgraduate",
+    "mds": "postgraduate",
+    "resident": "postgraduate",
+    "residency": "postgraduate",
+    "research": "researcher",
+    "researcher": "researcher",
+    "researchers": "researcher",
+    "phd": "researcher",
+    "doctorate": "researcher",
+    "doctoral": "researcher",
+    "scientist": "researcher"
+  };
+
+  return gradeMap[g] || g;
+}
+
+function normalizeMode(input) {
+  const mode = String(input || "").trim().toLowerCase();
+  return mode === "exam" ? "exam" : "study";
+}
+
+function normalizeSubject(input) {
+  return String(input || "").trim();
+}
+
+function getChapter(node) {
+  return (
+    node.chapter ||
+    node.chapterName ||
+    node.chapter_title ||
+    ""
+  );
+}
+
+function getTopic(node) {
+  return (
+    node.topic ||
+    node.topicName ||
+    node.title ||
+    node.heading ||
+    ""
+  );
+}
+
+function formatSyllabusContext(nodes = []) {
+  if (!nodes.length) return "No syllabus context found.";
+
+  return nodes
+    .map((node, index) => {
+      return `
+[Context ${index + 1}]
+Subject: ${node.subject || "Unknown"}
+Grade: ${node.grade || "Unknown"}
+Chapter: ${getChapter(node) || "Unknown"}
+Topic: ${getTopic(node) || "Unknown"}
+Content: ${node.content || node.searchableText || ""}
+`;
+    })
+    .join("\n");
+}
+
+async function askAI(req, res) {
   try {
-    const {
-      studentId,
-      question,
-      grade,
-      language,
-      mode,
-      board,
-      subject,
-      chatHistory
-    } = req.body;
+    const question = String(req.body.question || "").trim();
+    const grade = normalizeGrade(req.body.grade);
+    const subject = normalizeSubject(req.body.subject);
+    const mode = normalizeMode(req.body.mode);
+    const studentId = req.body.studentId || null;
 
     if (!question) {
       return res.status(400).json({
@@ -84,282 +169,157 @@ const askAI = async (req, res) => {
       });
     }
 
-    let student = null;
+    if (question.length > 1000) {
+      return res.status(400).json({
+        success: false,
+        error: "Question is too long"
+      });
+    }
 
+    let student = null;
     if (studentId) {
       try {
         student = await Student.findById(studentId);
       } catch (err) {
-        console.log("Student lookup error:", err.message);
+        console.log("Student lookup skipped");
       }
     }
 
-    if (!student) {
-      console.log("Student not found, using fallback demo student");
-      student = {
-        grade: grade || "Grade 5",
-        language: language || "English",
-        board: board || "CBSE",
-        subjectPreference: subject || "General",
-        mood: "neutral",
-        recentQuestions: [],
-        lastTopic: "",
-        save: async () => {}
-      };
-    }
+    const embedding = await aiService.getEmbedding(question);
 
-    const finalGrade = grade || student.grade || "Grade 5";
-    const finalLanguage = language || student.language || "English";
-    const finalMode = mode || "study";
-    const finalBoard = board || student.board || "CBSE";
-    const finalSubject = subject || student.subjectPreference || "General";
-
-    let modeInstruction = "";
-
-    if (finalMode === "study") {
-      modeInstruction =
-        "End with one short follow-up question to check understanding.";
-    } else if (finalMode === "exam") {
-      modeInstruction =
-        "Give the answer in crisp exam-ready point-wise style with important keywords and do not ask a follow-up question.";
-    } else if (finalMode === "homework") {
-      modeInstruction =
-        "Solve step-by-step clearly without skipping reasoning and do not ask unrelated follow-up questions.";
-    } else {
-      modeInstruction = "Explain clearly in a helpful, conversational way.";
-    }
-
-    let syllabusContext = "";
-    let matchedTopicName = "";
-    let matchedChapterName = "";
+    let matches = [];
 
     try {
-      const questionEmbedding = await aiService.getEmbedding(question);
-
-      const vectorResults = await SyllabusNode.aggregate([
+      matches = await SyllabusNode.aggregate([
         {
           $vectorSearch: {
             index: "vector_index",
             path: "embedding",
-            queryVector: questionEmbedding,
+            queryVector: embedding,
             numCandidates: 50,
-            limit: 5,
-            filter: {
-  $and: [
-    { board: finalBoard },
-    { grade: finalGrade },
-    { subject: finalSubject },
-    { active: true }
-  ]
-}
+            limit: 8
           }
         },
         {
           $project: {
-            board: 1,
-            grade: 1,
             subject: 1,
-            chapterNumber: 1,
+            grade: 1,
+            board: 1,
+            chapter: 1,
             chapterName: 1,
+            chapterCode: 1,
+            topic: 1,
             topicName: 1,
+            topicCode: 1,
+            content: 1,
+            searchableText: 1,
             keywords: 1,
             aliases: 1,
             score: { $meta: "vectorSearchScore" }
           }
         }
       ]);
+    } catch (vectorError) {
+      console.error("Vector search failed:", vectorError.message);
+      matches = [];
+    }
 
-      if (vectorResults.length > 0) {
-        const bestMatch = vectorResults[0];
+    if (grade) {
+      const gradeFiltered = matches.filter(
+        (node) => String(node.grade || "").trim().toLowerCase() === grade
+      );
+      if (gradeFiltered.length) matches = gradeFiltered;
+    }
 
-        matchedTopicName = bestMatch.topicName || "";
-        matchedChapterName = bestMatch.chapterName || "";
+    if (subject) {
+      const subjectLower = subject.toLowerCase();
+      const subjectFiltered = matches.filter(
+        (node) => String(node.subject || "").trim().toLowerCase() === subjectLower
+      );
+      if (subjectFiltered.length) matches = subjectFiltered;
+    }
 
-        syllabusContext =
-          "Matched Chapter: " + (bestMatch.chapterName || "") + "\n" +
-          "Matched Topic: " + (bestMatch.topicName || "") + "\n" +
-          "Keywords: " + (bestMatch.keywords || []).join(", ") + "\n" +
-          "Aliases: " + (bestMatch.aliases || []).join(", ");
+    let strongMatches = matches.filter((node) => (node.score || 0) >= 0.75);
+    let weakMatches = matches.filter((node) => (node.score || 0) >= 0.6);
 
-        console.log("Best vector match:", {
-          chapter: matchedChapterName,
-          topic: matchedTopicName,
-          score: bestMatch.score
-        });
-      } else {
-        const fallbackTopics = await SyllabusNode.find({
-          board: finalBoard,
-          grade: finalGrade,
-          subject: finalSubject,
-          active: true
-        })
-          .select("chapterNumber chapterName topicName keywords aliases")
-          .limit(50)
-          .lean();
-
-        const bestFallback = buildKeywordFallback(question, fallbackTopics);
-
-        if (bestFallback && bestFallback.score > 0) {
-          matchedTopicName = bestFallback.item.topicName || "";
-          matchedChapterName = bestFallback.item.chapterName || "";
-
-          syllabusContext =
-            "Matched Chapter: " + (bestFallback.item.chapterName || "") + "\n" +
-            "Matched Topic: " + (bestFallback.item.topicName || "") + "\n" +
-            "Keywords: " + (bestFallback.item.keywords || []).join(", ") + "\n" +
-            "Aliases: " + (bestFallback.item.aliases || []).join(", ");
-        } else {
-          syllabusContext = fallbackTopics
-            .slice(0, 10)
-            .map((item) => {
-              return (
-                "Chapter " +
-                (item.chapterNumber || "") +
-                ": " +
-                item.chapterName +
-                " | Topic: " +
-                item.topicName
-              );
-            })
-            .join("\n");
-        }
-      }
-    } catch (err) {
-      console.log("Syllabus vector search failed:", err.message);
-
-      try {
-        const fallbackTopics = await SyllabusNode.find({
-          board: finalBoard,
-          grade: finalGrade,
-          subject: finalSubject,
-          active: true
-        })
-          .select("chapterNumber chapterName topicName keywords aliases")
-          .limit(50)
-          .lean();
-
-        const bestFallback = buildKeywordFallback(question, fallbackTopics);
-
-        if (bestFallback && bestFallback.score > 0) {
-          matchedTopicName = bestFallback.item.topicName || "";
-          matchedChapterName = bestFallback.item.chapterName || "";
-
-          syllabusContext =
-            "Matched Chapter: " + (bestFallback.item.chapterName || "") + "\n" +
-            "Matched Topic: " + (bestFallback.item.topicName || "") + "\n" +
-            "Keywords: " + (bestFallback.item.keywords || []).join(", ") + "\n" +
-            "Aliases: " + (bestFallback.item.aliases || []).join(", ");
-        } else {
-          syllabusContext = fallbackTopics
-            .slice(0, 10)
-            .map((item) => {
-              return (
-                "Chapter " +
-                (item.chapterNumber || "") +
-                ": " +
-                item.chapterName +
-                " | Topic: " +
-                item.topicName
-              );
-            })
-            .join("\n");
-        }
-      } catch (fallbackErr) {
-        console.log("Syllabus fallback failed:", fallbackErr.message);
+    // keyword fallback support if vector scores are weak
+    if (!strongMatches.length && !weakMatches.length && matches.length) {
+      const bestKeyword = buildKeywordFallback(question, matches);
+      if (bestKeyword && bestKeyword.score > 0) {
+        weakMatches = [bestKeyword.item];
       }
     }
 
-    const systemPrompt = `
-You are a highly skilled, mature, and friendly educational Fairy tutor having a natural 1-on-1 conversation with a student.
+    let finalMatches = [];
+    let retrievalStrength = "none";
 
-STUDENT PROFILE:
-- Board: ${finalBoard}
-- Grade: ${finalGrade}
-- Subject: ${finalSubject}
-- Language: ${finalLanguage}
-- Mode: ${finalMode}
-
-MATCHING RESULT:
-- Matched Chapter: ${matchedChapterName || "Not confidently matched"}
-- Matched Topic: ${matchedTopicName || "Not confidently matched"}
-
-SYLLABUS CONTEXT:
-${syllabusContext || "No exact syllabus context found. Stay appropriate for the student's grade, board, and subject."}
-
-CRITICAL RULES:
-1. Speak ONLY in ${finalLanguage}. Use simple, natural, grammatically correct language.
-2. Teach strictly at Grade ${finalGrade} level.
-3. Stay aligned with ${finalBoard} syllabus.
-4. If topic is matched, stay tightly within that topic.
-
-DEPTH CONTROL (VERY IMPORTANT):
-- Grade 1–3 → very simple, 2–3 sentences + 1 example
-- Grade 4–7 → short explanation + example + 3 key points
-- Grade 8–10 → clear explanation + example + key points (moderate depth)
-- Grade 11–12 → deeper explanation + reasoning + key points
-- Higher → conceptual + detailed explanation
-
-RESPONSE STRUCTURE:
-1. Start with a direct answer (1–2 lines)
-2. Then explain clearly (depth based on grade)
-3. Add example if useful
-4. Add key points if needed (especially exam mode)
-
-MODE BEHAVIOR:
-- Study → explain + example + ask 1 question
-- Exam → concise, point-wise, keywords focused
-- Homework → step-by-step solution
-
-OUTPUT RULES:
-- Avoid unnecessary repetition
-- Avoid very long paragraphs
-- Keep answer clean and readable
-- Make it good for voice + screen
-- Do NOT force short answers when topic needs depth
-
-${modeInstruction}
-Your response must feel like a real teacher explaining clearly, not like an AI.
-`.trim();
-
-    let messagesArray = [{ role: "system", content: systemPrompt }];
-
-    if (chatHistory && Array.isArray(chatHistory)) {
-      messagesArray = messagesArray.concat(chatHistory);
+    if (strongMatches.length > 0) {
+      finalMatches = strongMatches.slice(0, 4);
+      retrievalStrength = "strong";
+    } else if (weakMatches.length > 0) {
+      finalMatches = weakMatches.slice(0, 3);
+      retrievalStrength = "weak";
+    } else if (matches.length > 0) {
+      finalMatches = matches.slice(0, 2);
+      retrievalStrength = "weak";
     }
 
-    messagesArray.push({ role: "user", content: question });
+    const syllabusContext = formatSyllabusContext(finalMatches);
 
-    let answer = await aiService.getAnswer(messagesArray);
+    let answer = await aiService.getAnswer({
+      question,
+      grade,
+      subject,
+      mode,
+      syllabusContext,
+      retrievalStrength
+    });
+
     answer = cleanAIText(answer);
 
     try {
-      if (student.recentQuestions) {
+      if (student && student.recentQuestions) {
         student.recentQuestions.push(question);
-      }
-      if (student.save) {
         await student.save();
       }
     } catch (err) {
       console.log("History save skipped");
     }
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       answer,
-      subject: finalSubject,
-      matchedChapter: matchedChapterName,
-      matchedTopic: matchedTopicName,
+      meta: {
+        mode,
+        grade: grade || null,
+        subject: subject || null,
+        contextUsed: finalMatches.length > 0,
+        retrievalStrength,
+        totalMatches: matches.length,
+        usedMatches: finalMatches.length,
+        matchedTopics: finalMatches.map((item) => ({
+          subject: item.subject || null,
+          grade: item.grade || null,
+          chapter: getChapter(item) || null,
+          chapterCode: item.chapterCode || null,
+          topic: getTopic(item) || null,
+          topicCode: item.topicCode || null,
+          score: item.score || 0
+        }))
+      },
+      matchedChapter: finalMatches[0] ? getChapter(finalMatches[0]) || null : null,
+      matchedTopic: finalMatches[0] ? getTopic(finalMatches[0]) || null : null,
       mood: "explainer"
     });
   } catch (error) {
-    console.error("AI Controller Error:", error);
+    console.error("askAI error:", error.response?.data || error.message);
 
     return res.status(500).json({
       success: false,
-      error: "AI processing failed"
+      error: "Something went wrong while generating the answer"
     });
   }
-};
+}
 
 module.exports = {
   askAI
