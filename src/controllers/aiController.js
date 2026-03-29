@@ -89,11 +89,6 @@ function normalizeGrade(input) {
     "undergraduateprogramme": "undergraduate",
     "undergraduateclass": "undergraduate",
     "undergraduateyear": "undergraduate",
-    "undergraduatembbs": "undergraduate",
-    "undergraduatebds": "undergraduate",
-    "undergraduatebams": "undergraduate",
-    "undergraduatebhms": "undergraduate",
-    "undergraduatebpt": "undergraduate",
     "ug": "undergraduate",
     "college": "undergraduate",
     "bachelor": "undergraduate",
@@ -134,7 +129,7 @@ function normalizeGrade(input) {
 
   return gradeMap[g] || g;
 }
-// 🔥 NEW FIX (IMPORTANT)
+
 function normalizeStoredGrade(input) {
   const g = String(input || "").trim().toLowerCase();
 
@@ -223,8 +218,8 @@ async function askAI(req, res) {
             index: "vector_index",
             path: "embedding",
             queryVector: embedding,
-            numCandidates: 50,
-            limit: 8
+            numCandidates: 150,
+            limit: 20
           }
         },
         {
@@ -251,30 +246,39 @@ async function askAI(req, res) {
       matches = [];
     }
 
-    // 🔥 FIXED GRADE FILTER
-    if (grade) {
-      const exactGradeMatches = matches.filter(
-        (node) => normalizeStoredGrade(node.grade) === grade
-      );
+    const wantedSubject = String(subject || "").trim().toLowerCase();
 
-      if (exactGradeMatches.length > 0) {
-        matches = exactGradeMatches;
-      }
-    }
+    const exactGradeAndSubjectMatches = matches.filter((node) => {
+      const nodeGrade = normalizeStoredGrade(node.grade);
+      const nodeSubject = String(node.subject || "").trim().toLowerCase();
 
-    // SUBJECT FILTER
-    if (subject) {
-      const subjectLower = subject.toLowerCase();
-      const subjectFiltered = matches.filter(
-        (node) => String(node.subject || "").trim().toLowerCase() === subjectLower
-      );
-      if (subjectFiltered.length) matches = subjectFiltered;
+      const gradeOk = grade ? nodeGrade === grade : true;
+      const subjectOk = subject ? nodeSubject === wantedSubject : true;
+
+      return gradeOk && subjectOk;
+    });
+
+    const exactGradeMatches = matches.filter((node) => {
+      const nodeGrade = normalizeStoredGrade(node.grade);
+      return grade ? nodeGrade === grade : true;
+    });
+
+    const exactSubjectMatches = matches.filter((node) => {
+      const nodeSubject = String(node.subject || "").trim().toLowerCase();
+      return subject ? nodeSubject === wantedSubject : true;
+    });
+
+    if (exactGradeAndSubjectMatches.length > 0) {
+      matches = exactGradeAndSubjectMatches;
+    } else if (exactGradeMatches.length > 0) {
+      matches = exactGradeMatches;
+    } else if (exactSubjectMatches.length > 0) {
+      matches = exactSubjectMatches;
     }
 
     let strongMatches = matches.filter((node) => (node.score || 0) >= 0.75);
     let weakMatches = matches.filter((node) => (node.score || 0) >= 0.6);
 
-    // keyword fallback
     if (!strongMatches.length && !weakMatches.length && matches.length) {
       const bestKeyword = buildKeywordFallback(question, matches);
       if (bestKeyword && bestKeyword.score > 0) {
