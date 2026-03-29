@@ -435,7 +435,9 @@ async function askAI(req, res) {
         retrievalStrength,
         totalMatches: matches.length,
         usedMatches: finalMatches.length,
-        matchedTopics: finalMatches.map((item) => ({
+        matchedTopics: finalMatches
+  .filter(item => (item.score || 0) > 0.2)
+  .map((item) => ({
           subject: item.subject || null,
           grade: item.grade || null,
           chapter: getChapter(item) || null,
