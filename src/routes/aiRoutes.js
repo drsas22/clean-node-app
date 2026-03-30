@@ -1,25 +1,15 @@
 const express = require("express");
 const router = express.Router();
-const { askAI, getReportCard } = require("../controllers/aiController");
 
-// ask route
+const { askAI } = require("../controllers/aiController"); // ✅ FIXED
+
 router.post(
   "/ask",
   (req, res, next) => {
     console.log("AI ROUTE HIT");
     next();
   },
-  askAI
-);
-
-// report route
-router.get(
-  "/report/:userId",
-  (req, res, next) => {
-    console.log("AI REPORT ROUTE HIT");
-    next();
-  },
-  getReportCard
+  askAI // ✅ direct function, not object
 );
 
 module.exports = router;
