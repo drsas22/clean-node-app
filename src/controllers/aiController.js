@@ -2,6 +2,7 @@ const Student = require("../models/Student");
 const SyllabusNode = require("../models/SyllabusNode");
 const aiService = require("../services/aiService");
 const StudentMemory = require("../models/StudentMemory");
+const { getWeakTopics, shouldTriggerRevision } = require("../services/memoryService");
 
 function cleanAIText(text) {
   if (!text) return "";
@@ -9,32 +10,17 @@ function cleanAIText(text) {
   return text
     .replace(/\\n/g, "\n")
     .replace(/\\r/g, "")
-
-    // remove ALL latex wrappers
     .replace(/\\\[(.*?)\\\]/gs, "$1")
     .replace(/\\\((.*?)\\\)/gs, "$1")
-
-    // convert fractions
     .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "$1 / $2")
-
-    // remove power latex like x^{2}
     .replace(/\^\{([^{}]+)\}/g, "^$1")
-
-    // convert symbols
     .replace(/\\times/g, "×")
     .replace(/\\cdot/g, "·")
     .replace(/\\sqrt\{([^{}]+)\}/g, "sqrt($1)")
     .replace(/\\pi/g, "pi")
-
-    // remove remaining latex commands
     .replace(/\\[a-zA-Z]+/g, "")
-
-    // remove stray slashes
     .replace(/\\/g, "")
-
-    // bullets
     .replace(/^[ \t]*-[ \t]+/gm, "• ")
-
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -48,11 +34,7 @@ function normalizeGrade(input) {
 
   if (!g) return "";
 
-  g = g
-    .replace(/^grade\s*/i, "")
-    .replace(/^class\s*/i, "")
-    .replace(/\s+/g, "")
-    .trim();
+  g = g.replace(/^grade\s*/i, "").replace(/^class\s*/i, "").replace(/\s+/g, "").trim();
 
   const gradeMap = {
     "1st": "1",
@@ -132,42 +114,15 @@ function extractTopic(question) {
   const q = String(question || "").toLowerCase();
 
   const knownTopics = [
-    "addition",
-    "subtraction",
-    "multiplication",
-    "division",
-    "numbers",
-    "fractions",
-    "plants",
-    "body parts",
-    "photosynthesis",
-    "respiration",
-    "digestion",
-    "nutrition",
-    "reproduction",
-    "cell",
-    "tissue",
-    "force",
-    "motion",
-    "friction",
-    "light",
-    "reflection",
-    "refraction",
-    "electricity",
-    "magnetism",
-    "acid",
-    "base",
-    "salt",
-    "atom",
-    "molecule",
-    "heat",
-    "sound"
+    "addition", "subtraction", "multiplication", "division", "numbers", "fractions",
+    "plants", "body parts", "photosynthesis", "respiration", "digestion", "nutrition",
+    "reproduction", "cell", "tissue", "force", "motion", "friction", "light",
+    "reflection", "refraction", "electricity", "magnetism", "acid", "base", "salt",
+    "atom", "molecule", "heat", "sound"
   ];
 
   for (const topic of knownTopics) {
-    if (q.includes(topic)) {
-      return topic;
-    }
+    if (q.includes(topic)) return topic;
   }
 
   return "";
@@ -340,23 +295,7 @@ async function askAI(req, res) {
       .replace(/[^a-z0-9\s]/g, " ")
       .split(/\s+/)
       .filter(Boolean)
-      .filter(
-        (w) =>
-          ![
-            "what",
-            "is",
-            "are",
-            "the",
-            "of",
-            "in",
-            "on",
-            "for",
-            "a",
-            "an",
-            "explain",
-            "define"
-          ].includes(w)
-      )
+      .filter((w) => !["what", "is", "are", "the", "of", "in", "on", "for", "a", "an", "explain", "define"].includes(w))
       .slice(0, 5);
 
     importantWords.forEach((word) => {
@@ -376,9 +315,7 @@ async function askAI(req, res) {
       const lexicalMatches = await SyllabusNode.find({
         ...lexicalQuery,
         $or: lexicalOr
-      })
-        .limit(20)
-        .lean();
+      }).limit(20).lean();
 
       if (lexicalMatches.length > 0) {
         matches = buildKeywordFallback(question, lexicalMatches).slice(0, 5);
@@ -392,13 +329,8 @@ async function askAI(req, res) {
 
       const vectorFilter = { active: true };
 
-      if (subject) {
-        vectorFilter.subject = subject;
-      }
-
-      if (grade) {
-        vectorFilter.grade = formatStoredGrade(grade);
-      }
+      if (subject) vectorFilter.subject = subject;
+      if (grade) vectorFilter.grade = formatStoredGrade(grade);
 
       try {
         const vectorMatches = await SyllabusNode.aggregate([
@@ -449,12 +381,8 @@ async function askAI(req, res) {
         finalMatches = matches.slice(0, 3);
         retrievalStrength = "strong";
       } else {
-        const strongMatches = matches.filter(
-          (node) => (node.finalScore || node.score || 0) >= 0.75
-        );
-        const weakMatches = matches.filter(
-          (node) => (node.finalScore || node.score || 0) >= 0.6
-        );
+        const strongMatches = matches.filter((node) => (node.finalScore || node.score || 0) >= 0.75);
+        const weakMatches = matches.filter((node) => (node.finalScore || node.score || 0) >= 0.6);
 
         if (strongMatches.length > 0) {
           finalMatches = strongMatches.slice(0, 4);
@@ -471,19 +399,31 @@ async function askAI(req, res) {
 
     const syllabusContext = formatSyllabusContext(finalMatches);
 
+    const matchedTopic = finalMatches[0] ? getTopic(finalMatches[0]) || null : null;
+    const matchedChapter = finalMatches[0] ? getChapter(finalMatches[0]) || null : null;
+
+    const weakTopics = await getWeakTopics(userId);
+    const revisionMode = await shouldTriggerRevision(userId, matchedTopic || "unknown");
+
+    let weakContext = "";
+    if (weakTopics.length > 0) {
+      weakContext = weakTopics
+        .map((t) => `${t.topic} (${t.subject}) count=${t.count}`)
+        .join(", ");
+    }
+
     let answer = await aiService.getAnswer({
       question,
       grade,
       subject,
       mode,
       syllabusContext,
-      retrievalStrength
+      retrievalStrength,
+      weakContext,
+      revisionMode
     });
 
     answer = cleanAIText(answer);
-
-    const matchedTopic = finalMatches[0] ? getTopic(finalMatches[0]) || null : null;
-    const matchedChapter = finalMatches[0] ? getChapter(finalMatches[0]) || null : null;
 
     console.log("Updating memory for:", userId);
 
@@ -515,6 +455,8 @@ async function askAI(req, res) {
         retrievalMethod,
         contextUsed: finalMatches.length > 0,
         retrievalStrength,
+        revisionMode,
+        weakTopics: weakTopics.slice(0, 3),
         totalMatches: matches.length,
         usedMatches: finalMatches.length,
         matchedTopics: finalMatches

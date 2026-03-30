@@ -22,7 +22,7 @@ Your teaching style:
 Important behavior rules:
 - Do not sound like a chatbot or AI assistant
 - Do not say "based on the context provided" or "according to the retrieved content"
-- Do not mention prompts, embeddings, vector search, retrieval, or internal system details
+- Do not mention prompts, embeddings, vector search, retrieval, memory system, or internal system details
 - If the question is unclear, answer in the most helpful likely way and mention the assumption briefly
 - If the topic is outside the syllabus context, still teach helpfully in a clear way
 - Avoid unnecessary jargon for younger learners
@@ -123,7 +123,7 @@ function getGradeInstruction(grade) {
       "engineering"
     ].includes(g)
   ) {
-    return "Use undergraduate-level explanation with correct terminology, conceptual depth, and practical clarity. Explain mechanisms, relationships, and important applied points without oversimplifying.";
+    return "Use undergraduate-level explanation with correct terminology, conceptual depth, and practical clarity.";
   }
 
   if (
@@ -137,12 +137,10 @@ function getGradeInstruction(grade) {
       "ms",
       "mds",
       "residency",
-      "resident",
-      "speciality",
-      "specialty"
+      "resident"
     ].includes(g)
   ) {
-    return "Use postgraduate-level explanation with higher precision, deeper conceptual detail, and stronger clinical, analytical, or subject-specific framing. Include important distinctions, mechanisms, and advanced reasoning where relevant.";
+    return "Use postgraduate-level explanation with higher precision, deeper conceptual detail, and stronger analytical framing.";
   }
 
   if (
@@ -156,7 +154,7 @@ function getGradeInstruction(grade) {
       "scientist"
     ].includes(g)
   ) {
-    return "Use researcher-level explanation with rigorous terminology, nuanced reasoning, advanced conceptual framing, and where relevant include mechanisms, limitations, comparisons, and critical interpretation. Keep the explanation clear, structured, and academically strong.";
+    return "Use researcher-level explanation with rigorous terminology, nuanced reasoning, and advanced conceptual framing.";
   }
 
   return "Adjust explanation to the student's likely level and keep it clear and easy to understand.";
@@ -189,8 +187,6 @@ function getOutputFormat(mode, grade) {
     "mds",
     "residency",
     "resident",
-    "speciality",
-    "specialty",
     "research",
     "researcher",
     "researchers",
@@ -276,7 +272,9 @@ function buildUserPrompt({
   subject,
   mode = "study",
   syllabusContext = "No syllabus context found.",
-  retrievalStrength = "none"
+  retrievalStrength = "none",
+  weakContext = "",
+  revisionMode = false
 }) {
   return `
 Student Question:
@@ -309,6 +307,12 @@ ${getRetrievalInstruction(retrievalStrength)}
 Relevant Syllabus Context:
 ${syllabusContext}
 
+Weak Topic Context:
+${weakContext || "No weak-topic history available."}
+
+Revision Trigger:
+${revisionMode ? "The student appears to be repeatedly struggling with this topic. Briefly acknowledge that and give a slightly more supportive explanation with one focused revision-style reinforcement." : "No revision trigger."}
+
 ${getOutputFormat(mode, grade)}
 
 Extra rules:
@@ -318,7 +322,7 @@ Extra rules:
 - Be clear, teacher-like, and easy to follow
 - When a concept is abstract, use one simple example or analogy if helpful
 - For undergraduate, postgraduate, and researcher levels, increase rigor and precision appropriately
-- Do not mention syllabus retrieval, context blocks, or internal processing
+- Do not mention syllabus retrieval, context blocks, memory system, or internal processing
 - For maths, physics and chemistry, write formulas in plain text only
 - Do not use LaTeX or mathematical markup
 - Keep equations easy to read on a phone screen
@@ -332,7 +336,9 @@ const getAnswer = async ({
   subject,
   mode = "study",
   syllabusContext = "No syllabus context found.",
-  retrievalStrength = "none"
+  retrievalStrength = "none",
+  weakContext = "",
+  revisionMode = false
 }) => {
   try {
     if (!OPENAI_API_KEY) {
@@ -357,7 +363,9 @@ const getAnswer = async ({
           subject,
           mode,
           syllabusContext,
-          retrievalStrength
+          retrievalStrength,
+          weakContext,
+          revisionMode
         })
       }
     ];
