@@ -1,10 +1,24 @@
 const express = require("express");
 const router = express.Router();
 
-const controller = require("../controllers/aiController");
+const { askAI, getReportCard } = require("../controllers/aiController");
 
-console.log("aiController keys:", Object.keys(controller));
+router.post(
+  "/ask",
+  (req, res, next) => {
+    console.log("AI ROUTE HIT");
+    next();
+  },
+  askAI
+);
 
-router.post("/ask", controller.askAI);
+router.get(
+  "/report/:userId",
+  (req, res, next) => {
+    console.log("AI REPORT ROUTE HIT");
+    next();
+  },
+  getReportCard
+);
 
 module.exports = router;
