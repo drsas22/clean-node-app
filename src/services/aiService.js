@@ -226,20 +226,20 @@ Required output structure:
 5. Practice Question (only if useful)
 `;
 }
-
 function getRetrievalInstruction(retrievalStrength) {
   const strength = String(retrievalStrength || "none").toLowerCase();
 
   if (strength === "strong") {
-    return "Use the syllabus context strongly and keep the answer closely aligned to it.";
+    return "Use the syllabus context as the primary source. Do not introduce concepts from outside this context unless absolutely necessary.";
   }
 
   if (strength === "weak") {
-    return "Use the syllabus context carefully, but do not rely on it blindly if it seems incomplete.";
+    return "Use the syllabus context as a hint only. If it does not clearly fit the question, prioritize a safe, general explanation at the student's level.";
   }
 
   return "No reliable syllabus context was found. Answer helpfully, clearly, and at the student's level using general knowledge.";
 }
+
 
 function getSubjectFormattingRule(subject) {
   const s = String(subject || "").trim().toLowerCase();

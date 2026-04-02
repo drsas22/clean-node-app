@@ -375,34 +375,56 @@ async function askAI(req, res) {
       }
     }
 
-    let finalMatches = [];
-    let retrievalStrength = "none";
+        let finalMatches = [];
+        let retrievalStrength = "none";
 
     if (matches.length > 0) {
       if (retrievalMethod === "lexical") {
+        // Only treat as strong if we have at least 2 lexical hits
         finalMatches = matches.slice(0, 3);
-        retrievalStrength = "strong";
+        retrievalStrength = finalMatches.length >= 2 ? "strong" : "weak";
       } else {
-        const strongMatches = matches.filter((node) => (node.finalScore || node.score || 0) >= 0.75);
-        const weakMatches = matches.filter((node) => (node.finalScore || node.score || 0) >= 0.6);
+        const scored = matches.map((m) => ({
+          ...m,
+          _score: m.finalScore ?? m.score ?? 0
+        }));
+
+        const strongMatches = scored.filter((node) => node._score >= 0.80);
+        const mediumMatches = scored.filter((node) => node._score >= 0.65);
 
         if (strongMatches.length > 0) {
           finalMatches = strongMatches.slice(0, 4);
           retrievalStrength = "strong";
-        } else if (weakMatches.length > 0) {
-          finalMatches = weakMatches.slice(0, 3);
+        } else if (mediumMatches.length > 0) {
+          finalMatches = mediumMatches.slice(0, 3);
           retrievalStrength = "weak";
         } else {
-          finalMatches = matches.slice(0, 2);
+          // context exists but is too fuzzy – treat as weak and only pass top 1–2
+          finalMatches = scored.slice(0, 2);
           retrievalStrength = "weak";
         }
       }
     }
 
+
     const syllabusContext = formatSyllabusContext(finalMatches);
 
     const matchedTopic = finalMatches[0] ? getTopic(finalMatches[0]) || null : null;
     const matchedChapter = finalMatches[0] ? getChapter(finalMatches[0]) || null : null;
+
+    // DEBUG: retrieval transparency
+    console.log("[ASKAI] retrievalMethod:", retrievalMethod);
+    console.log("[ASKAI] retrievalStrength:", retrievalStrength);
+    console.log("[ASKAI] matchedChapter:", matchedChapter);
+    console.log("[ASKAI] matchedTopic:", matchedTopic);
+    console.log(
+      "[ASKAI] usedMatches:",
+      finalMatches.map((m) => ({
+        chapter: getChapter(m),
+        topic: getTopic(m),
+        score: m.finalScore || m.score || 0
+      }))
+    );
 
     const weakTopics = await getWeakTopics(userId);
     const revisionMode = await shouldTriggerRevision(userId, matchedTopic || "unknown");
