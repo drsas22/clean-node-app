@@ -389,8 +389,8 @@ async function askAI(req, res) {
           _score: m.finalScore ?? m.score ?? 0
         }));
 
-        const strongMatches = scored.filter((node) => node._score >= 0.80);
-        const mediumMatches = scored.filter((node) => node._score >= 0.65);
+        const strongMatches = scored.filter((node) => node._score >= 0.60);
+        const mediumMatches = scored.filter((node) => node._score >= 0.40);
 
         if (strongMatches.length > 0) {
           finalMatches = strongMatches.slice(0, 4);
@@ -494,16 +494,17 @@ async function askAI(req, res) {
         totalMatches: matches.length,
         usedMatches: finalMatches.length,
         matchedTopics: finalMatches
-          .filter((item) => (item.finalScore || item.score || 0) > 0.2)
+          .filter((item) => (item.finalScore || item.score || 0) > 0)
           .map((item) => ({
-            subject: item.subject || null,
-            grade: item.grade || null,
-            chapter: getChapter(item) || null,
-            chapterCode: item.chapterCode || null,
-            topic: getTopic(item) || null,
-            topicCode: item.topicCode || null,
-            score: item.finalScore || item.score || 0
-          }))
+          subject: item.subject || null,
+          grade: item.grade || null,
+          chapter: getChapter(item) || null,
+          chapterCode: item.chapterCode || null,
+          topic: getTopic(item) || null,
+          topicCode: item.topicCode || null,
+          score: item.finalScore || item.score || 0
+  }))
+
       },
       matchedChapter,
       matchedTopic,
