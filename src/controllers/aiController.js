@@ -5,6 +5,8 @@ const aiService = require("../services/aiService");
 const { getWeakTopics, shouldTriggerRevision } = require("../services/memoryService");
 const { generateQuiz } = require("../services/quizService");
 const { getStudentReport } = require("../services/reportService");
+const { detectIntent } = require("../utils/detectIntent");
+const { generateCasualReply } = require("../services/casualService");
 
 function cleanAIText(text) {
   if (!text) return "";
@@ -234,6 +236,257 @@ async function updateMemory(userId, question, subject, grade, topic) {
   }
 }
 
+async function runAcademicPipeline({ question, grade, subject, mode, studentId, userId, res }) {
+  const detectedTopic = extractTopic(question);
+
+  let student = null;
+  if (studentId) {
+    try {
+      student = await Student.findById(studentId);
+    } catch (err) {
+      console.log("Student lookup skipped");
+    }
+  }
+
+  let matches = [];
+  let retrievalMethod = "none";
+
+  const lexicalQuery = { active: true };
+
+  if (subject) {
+    lexicalQuery.subject = new RegExp(`^${escapeRegex(subject)}$`, "i");
+  }
+
+  if (grade) {
+    lexicalQuery.grade = new RegExp(`^${escapeRegex(formatStoredGrade(grade))}$`, "i");
+  }
+
+  const lexicalOr = [];
+
+  if (detectedTopic) {
+    lexicalOr.push(
+      { topicName: new RegExp(escapeRegex(detectedTopic), "i") },
+      { chapterName: new RegExp(escapeRegex(detectedTopic), "i") },
+      { searchableText: new RegExp(escapeRegex(detectedTopic), "i") },
+      { content: new RegExp(escapeRegex(detectedTopic), "i") },
+      { keywords: { $elemMatch: { $regex: escapeRegex(detectedTopic), $options: "i" } } },
+      { aliases: { $elemMatch: { $regex: escapeRegex(detectedTopic), $options: "i" } } }
+    );
+  }
+
+  const importantWords = String(question)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((w) => !["what", "is", "are", "the", "of", "in", "on", "for", "a", "an", "explain", "define"].includes(w))
+    .slice(0, 5);
+
+  importantWords.forEach((word) => {
+    if (word.length >= 3) {
+      lexicalOr.push(
+        { topicName: new RegExp(`\\b${escapeRegex(word)}\\b`, "i") },
+        { chapterName: new RegExp(`\\b${escapeRegex(word)}\\b`, "i") },
+        { searchableText: new RegExp(`\\b${escapeRegex(word)}\\b`, "i") },
+        { content: new RegExp(`\\b${escapeRegex(word)}\\b`, "i") },
+        { keywords: { $elemMatch: { $regex: `\\b${escapeRegex(word)}\\b`, $options: "i" } } },
+        { aliases: { $elemMatch: { $regex: `\\b${escapeRegex(word)}\\b`, $options: "i" } } }
+      );
+    }
+  });
+
+  if (lexicalOr.length > 0) {
+    const lexicalMatches = await SyllabusNode.find({
+      ...lexicalQuery,
+      $or: lexicalOr
+    }).limit(20).lean();
+
+    if (lexicalMatches.length > 0) {
+      matches = buildKeywordFallback(question, lexicalMatches).slice(0, 5);
+      retrievalMethod = "lexical";
+    }
+  }
+
+  if (!matches.length) {
+    const enrichedQuery = `${question} ${subject} grade ${grade} ${detectedTopic}`.trim();
+    const embedding = await aiService.getEmbedding(enrichedQuery);
+
+    const vectorFilter = { active: true };
+    if (subject) vectorFilter.subject = subject;
+    if (grade) vectorFilter.grade = formatStoredGrade(grade);
+
+    try {
+      const vectorMatches = await SyllabusNode.aggregate([
+        {
+          $vectorSearch: {
+            index: "vector_index",
+            path: "embedding",
+            queryVector: embedding,
+            numCandidates: 150,
+            limit: 20,
+            filter: vectorFilter
+          }
+        },
+        {
+          $project: {
+            subject: 1,
+            grade: 1,
+            board: 1,
+            chapter: 1,
+            chapterName: 1,
+            chapterCode: 1,
+            topic: 1,
+            topicName: 1,
+            topicCode: 1,
+            content: 1,
+            searchableText: 1,
+            keywords: 1,
+            aliases: 1,
+            score: { $meta: "vectorSearchScore" }
+          }
+        }
+      ]);
+
+      if (vectorMatches.length > 0) {
+        matches = buildKeywordFallback(question, vectorMatches);
+        retrievalMethod = "vector";
+      }
+    } catch (vectorError) {
+      console.error("Vector search failed:", vectorError.message);
+    }
+  }
+
+  let finalMatches = [];
+  let retrievalStrength = "none";
+
+  if (matches.length > 0) {
+    if (retrievalMethod === "lexical") {
+      finalMatches = matches.slice(0, 3);
+      retrievalStrength = finalMatches.length >= 2 ? "strong" : "weak";
+    } else {
+      const scored = matches.map((m) => ({
+        ...m,
+        _score: m.finalScore ?? m.score ?? 0
+      }));
+
+      const strongMatches = scored.filter((node) => node._score >= 0.60);
+      const mediumMatches = scored.filter((node) => node._score >= 0.40);
+
+      if (strongMatches.length > 0) {
+        finalMatches = strongMatches.slice(0, 4);
+        retrievalStrength = "strong";
+      } else if (mediumMatches.length > 0) {
+        finalMatches = mediumMatches.slice(0, 3);
+        retrievalStrength = "weak";
+      } else {
+        finalMatches = scored.slice(0, 2);
+        retrievalStrength = "weak";
+      }
+    }
+  }
+
+  const syllabusContext = formatSyllabusContext(finalMatches);
+
+  const matchedTopic = finalMatches[0] ? getTopic(finalMatches[0]) || null : null;
+  const matchedChapter = finalMatches[0] ? getChapter(finalMatches[0]) || null : null;
+
+  console.log("[ASKAI] retrievalMethod:", retrievalMethod);
+  console.log("[ASKAI] retrievalStrength:", retrievalStrength);
+  console.log("[ASKAI] matchedChapter:", matchedChapter);
+  console.log("[ASKAI] matchedTopic:", matchedTopic);
+  console.log(
+    "[ASKAI] usedMatches:",
+    finalMatches.map((m) => ({
+      chapter: getChapter(m),
+      topic: getTopic(m),
+      score: m.finalScore || m.score || 0
+    }))
+  );
+
+  const weakTopics = await getWeakTopics(userId);
+  const revisionMode = await shouldTriggerRevision(userId, matchedTopic || "unknown");
+
+  let weakContext = "";
+  if (weakTopics.length > 0) {
+    weakContext = weakTopics
+      .map((t) => `${t.topic} (${t.subject}) count=${t.count}`)
+      .join(", ");
+  }
+
+  let answer = await aiService.getAnswer({
+    question,
+    grade,
+    subject,
+    mode,
+    syllabusContext,
+    retrievalStrength,
+    weakContext,
+    revisionMode
+  });
+
+  answer = cleanAIText(answer);
+
+  console.log("Updating memory for:", userId);
+
+  await updateMemory(
+    userId,
+    question,
+    subject,
+    grade,
+    matchedTopic || "unknown"
+  );
+
+  let triggeredQuiz = null;
+  if (revisionMode && matchedTopic) {
+    triggeredQuiz = await generateQuiz({
+      topic: matchedTopic,
+      subject,
+      grade,
+      count: 5
+    });
+  }
+
+  try {
+    if (student && student.recentQuestions) {
+      student.recentQuestions.push(question);
+      await student.save();
+    }
+  } catch (err) {
+    console.log("History save skipped");
+  }
+
+  return {
+    answer,
+    meta: {
+      mode,
+      grade: grade || null,
+      subject: subject || null,
+      detectedTopic: detectedTopic || null,
+      retrievalMethod,
+      contextUsed: finalMatches.length > 0,
+      retrievalStrength,
+      revisionMode,
+      weakTopics: weakTopics.slice(0, 3),
+      totalMatches: matches.length,
+      usedMatches: finalMatches.length,
+      matchedTopics: finalMatches
+        .filter((item) => (item.finalScore || item.score || 0) > 0)
+        .map((item) => ({
+          subject: item.subject || null,
+          grade: item.grade || null,
+          chapter: getChapter(item) || null,
+          chapterCode: item.chapterCode || null,
+          topic: getTopic(item) || null,
+          topicCode: item.topicCode || null,
+          score: item.finalScore || item.score || 0
+        }))
+    },
+    matchedChapter,
+    matchedTopic,
+    quiz: triggeredQuiz
+  };
+}
+
 async function askAI(req, res) {
   try {
     const question = String(req.body.question || "").trim();
@@ -242,7 +495,6 @@ async function askAI(req, res) {
     const mode = normalizeMode(req.body.mode);
     const studentId = req.body.studentId || null;
     const userId = studentId || "demo-user";
-    const detectedTopic = extractTopic(question);
 
     if (!question) {
       return res.status(400).json({
@@ -258,153 +510,72 @@ async function askAI(req, res) {
       });
     }
 
-    let student = null;
-    if (studentId) {
-      try {
-        student = await Student.findById(studentId);
-      } catch (err) {
-        console.log("Student lookup skipped");
-      }
+    // NEW: intent detection
+    const { intent } = detectIntent(question);
+    console.log("[ASKAI] detected intent:", intent);
+
+    if (intent === "chitchat" || intent === "general") {
+      const language = req.body.language || "English";
+      const casualAnswer = await generateCasualReply({ question, language });
+
+      return res.status(200).json({
+        success: true,
+        answer: cleanAIText(casualAnswer),
+        meta: {
+          mode,
+          grade: grade || null,
+          subject: subject || null,
+          detectedTopic: null,
+          retrievalMethod: "none",
+          contextUsed: false,
+          retrievalStrength: "none",
+          revisionMode: false,
+          weakTopics: [],
+          totalMatches: 0,
+          usedMatches: 0,
+          matchedTopics: [],
+          intent: "chitchat"
+        },
+        matchedChapter: null,
+        matchedTopic: null,
+        mood: "friendly",
+        quiz: null
+      });
     }
 
-    let matches = [];
-    let retrievalMethod = "none";
-
-    const lexicalQuery = { active: true };
-
-    if (subject) {
-      lexicalQuery.subject = new RegExp(`^${escapeRegex(subject)}$`, "i");
-    }
-
-    if (grade) {
-      lexicalQuery.grade = new RegExp(`^${escapeRegex(formatStoredGrade(grade))}$`, "i");
-    }
-
-    const lexicalOr = [];
-
-    if (detectedTopic) {
-      lexicalOr.push(
-        { topicName: new RegExp(escapeRegex(detectedTopic), "i") },
-        { chapterName: new RegExp(escapeRegex(detectedTopic), "i") },
-        { searchableText: new RegExp(escapeRegex(detectedTopic), "i") },
-        { content: new RegExp(escapeRegex(detectedTopic), "i") },
-        { keywords: { $elemMatch: { $regex: escapeRegex(detectedTopic), $options: "i" } } },
-        { aliases: { $elemMatch: { $regex: escapeRegex(detectedTopic), $options: "i" } } }
-      );
-    }
-
-    const importantWords = String(question)
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, " ")
-      .split(/\s+/)
-      .filter(Boolean)
-      .filter((w) => !["what", "is", "are", "the", "of", "in", "on", "for", "a", "an", "explain", "define"].includes(w))
-      .slice(0, 5);
-
-    importantWords.forEach((word) => {
-      if (word.length >= 3) {
-        lexicalOr.push(
-          { topicName: new RegExp(`\\b${escapeRegex(word)}\\b`, "i") },
-          { chapterName: new RegExp(`\\b${escapeRegex(word)}\\b`, "i") },
-          { searchableText: new RegExp(`\\b${escapeRegex(word)}\\b`, "i") },
-          { content: new RegExp(`\\b${escapeRegex(word)}\\b`, "i") },
-          { keywords: { $elemMatch: { $regex: `\\b${escapeRegex(word)}\\b`, $options: "i" } } },
-          { aliases: { $elemMatch: { $regex: `\\b${escapeRegex(word)}\\b`, $options: "i" } } }
-        );
-      }
+    // Academic / syllabus flow (existing behavior)
+    const result = await runAcademicPipeline({
+      question,
+      grade,
+      subject,
+      mode,
+      studentId,
+      userId,
+      res
     });
 
-    if (lexicalOr.length > 0) {
-      const lexicalMatches = await SyllabusNode.find({
-        ...lexicalQuery,
-        $or: lexicalOr
-      }).limit(20).lean();
+    return res.status(200).json({
+      success: true,
+      answer: result.answer,
+      meta: {
+        ...result.meta,
+        intent: "academic"
+      },
+      matchedChapter: result.matchedChapter,
+      matchedTopic: result.matchedTopic,
+      mood: "explainer",
+      quiz: result.quiz
+    });
+  } catch (error) {
+    console.error("askAI error:", error.response?.data || error.message);
 
-      if (lexicalMatches.length > 0) {
-        matches = buildKeywordFallback(question, lexicalMatches).slice(0, 5);
-        retrievalMethod = "lexical";
-      }
-    }
+    return res.status(500).json({
+      success: false,
+      error: "Something went wrong while generating the answer"
+    });
+  }
+}full aicontroller pls check it 
 
-    if (!matches.length) {
-      const enrichedQuery = `${question} ${subject} grade ${grade} ${detectedTopic}`.trim();
-      const embedding = await aiService.getEmbedding(enrichedQuery);
-
-      const vectorFilter = { active: true };
-      if (subject) vectorFilter.subject = subject;
-      if (grade) vectorFilter.grade = formatStoredGrade(grade);
-
-      try {
-        const vectorMatches = await SyllabusNode.aggregate([
-          {
-            $vectorSearch: {
-              index: "vector_index",
-              path: "embedding",
-              queryVector: embedding,
-              numCandidates: 150,
-              limit: 20,
-              filter: vectorFilter
-            }
-          },
-          {
-            $project: {
-              subject: 1,
-              grade: 1,
-              board: 1,
-              chapter: 1,
-              chapterName: 1,
-              chapterCode: 1,
-              topic: 1,
-              topicName: 1,
-              topicCode: 1,
-              content: 1,
-              searchableText: 1,
-              keywords: 1,
-              aliases: 1,
-              score: { $meta: "vectorSearchScore" }
-            }
-          }
-        ]);
-
-        if (vectorMatches.length > 0) {
-          matches = buildKeywordFallback(question, vectorMatches);
-          retrievalMethod = "vector";
-        }
-      } catch (vectorError) {
-        console.error("Vector search failed:", vectorError.message);
-      }
-    }
-
-        let finalMatches = [];
-        let retrievalStrength = "none";
-
-    if (matches.length > 0) {
-      if (retrievalMethod === "lexical") {
-        // Only treat as strong if we have at least 2 lexical hits
-        finalMatches = matches.slice(0, 3);
-        retrievalStrength = finalMatches.length >= 2 ? "strong" : "weak";
-      } else {
-        const scored = matches.map((m) => ({
-          ...m,
-          _score: m.finalScore ?? m.score ?? 0
-        }));
-
-        const strongMatches = scored.filter((node) => node._score >= 0.60);
-        const mediumMatches = scored.filter((node) => node._score >= 0.40);
-
-        if (strongMatches.length > 0) {
-          finalMatches = strongMatches.slice(0, 4);
-          retrievalStrength = "strong";
-        } else if (mediumMatches.length > 0) {
-          finalMatches = mediumMatches.slice(0, 3);
-          retrievalStrength = "weak";
-        } else {
-          // context exists but is too fuzzy – treat as weak and only pass top 1–2
-          finalMatches = scored.slice(0, 2);
-          retrievalStrength = "weak";
-        }
-      }
-    }
 
 
     const syllabusContext = formatSyllabusContext(finalMatches);
