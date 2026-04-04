@@ -54,38 +54,38 @@ function normalizeGrade(input) {
     "11th": "11",
     "12th": "12",
 
-    "undergraduate": "undergraduate",
-    "undergraduatelevel": "undergraduate",
-    "ug": "undergraduate",
-    "college": "undergraduate",
-    "bachelor": "undergraduate",
-    "bachelors": "undergraduate",
-    "mbbs": "undergraduate",
-    "bds": "undergraduate",
-    "bams": "undergraduate",
-    "bhms": "undergraduate",
-    "bpt": "undergraduate",
-    "nursing": "undergraduate",
-    "engineering": "undergraduate",
+    undergraduate: "undergraduate",
+    undergraduatelevel: "undergraduate",
+    ug: "undergraduate",
+    college: "undergraduate",
+    bachelor: "undergraduate",
+    bachelors: "undergraduate",
+    mbbs: "undergraduate",
+    bds: "undergraduate",
+    bams: "undergraduate",
+    bhms: "undergraduate",
+    bpt: "undergraduate",
+    nursing: "undergraduate",
+    engineering: "undergraduate",
 
-    "postgraduate": "postgraduate",
-    "postgraduatelevel": "postgraduate",
-    "pg": "postgraduate",
-    "master": "postgraduate",
-    "masters": "postgraduate",
-    "md": "postgraduate",
-    "ms": "postgraduate",
-    "mds": "postgraduate",
-    "resident": "postgraduate",
-    "residency": "postgraduate",
+    postgraduate: "postgraduate",
+    postgraduatelevel: "postgraduate",
+    pg: "postgraduate",
+    master: "postgraduate",
+    masters: "postgraduate",
+    md: "postgraduate",
+    ms: "postgraduate",
+    mds: "postgraduate",
+    resident: "postgraduate",
+    residency: "postgraduate",
 
-    "research": "researcher",
-    "researcher": "researcher",
-    "researchers": "researcher",
-    "phd": "researcher",
-    "doctorate": "researcher",
-    "doctoral": "researcher",
-    "scientist": "researcher"
+    research: "researcher",
+    researcher: "researcher",
+    researchers: "researcher",
+    phd: "researcher",
+    doctorate: "researcher",
+    doctoral: "researcher",
+    scientist: "researcher"
   };
 
   return gradeMap[g] || g;
@@ -118,12 +118,43 @@ function extractTopic(question) {
   const q = String(question || "").toLowerCase();
 
   const knownTopics = [
-    "addition", "subtraction", "multiplication", "division", "numbers", "fractions",
-    "plants", "body parts", "photosynthesis", "respiration", "digestion", "nutrition",
-    "reproduction", "cell", "tissue", "force", "motion", "friction", "light",
-    "reflection", "refraction", "electricity", "magnetism", "acid", "base", "salt",
-    "atom", "molecule", "heat", "sound", "derivative", "trigonometry", "molarity",
-    "newton", "coulomb", "genetics", "cell structure"
+    "addition",
+    "subtraction",
+    "multiplication",
+    "division",
+    "numbers",
+    "fractions",
+    "plants",
+    "body parts",
+    "photosynthesis",
+    "respiration",
+    "digestion",
+    "nutrition",
+    "reproduction",
+    "cell",
+    "tissue",
+    "force",
+    "motion",
+    "friction",
+    "light",
+    "reflection",
+    "refraction",
+    "electricity",
+    "magnetism",
+    "acid",
+    "base",
+    "salt",
+    "atom",
+    "molecule",
+    "heat",
+    "sound",
+    "derivative",
+    "trigonometry",
+    "molarity",
+    "newton",
+    "coulomb",
+    "genetics",
+    "cell structure"
   ];
 
   for (const topic of knownTopics) {
@@ -236,7 +267,7 @@ async function updateMemory(userId, question, subject, grade, topic) {
   }
 }
 
-async function runAcademicPipeline({ question, grade, subject, mode, studentId, userId, res }) {
+async function runAcademicPipeline({ question, grade, subject, mode, studentId, userId }) {
   const detectedTopic = extractTopic(question);
 
   let student = null;
@@ -269,8 +300,16 @@ async function runAcademicPipeline({ question, grade, subject, mode, studentId, 
       { chapterName: new RegExp(escapeRegex(detectedTopic), "i") },
       { searchableText: new RegExp(escapeRegex(detectedTopic), "i") },
       { content: new RegExp(escapeRegex(detectedTopic), "i") },
-      { keywords: { $elemMatch: { $regex: escapeRegex(detectedTopic), $options: "i" } } },
-      { aliases: { $elemMatch: { $regex: escapeRegex(detectedTopic), $options: "i" } } }
+      {
+        keywords: {
+          $elemMatch: { $regex: escapeRegex(detectedTopic), $options: "i" }
+        }
+      },
+      {
+        aliases: {
+          $elemMatch: { $regex: escapeRegex(detectedTopic), $options: "i" }
+        }
+      }
     );
   }
 
@@ -279,7 +318,23 @@ async function runAcademicPipeline({ question, grade, subject, mode, studentId, 
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
     .filter(Boolean)
-    .filter((w) => !["what", "is", "are", "the", "of", "in", "on", "for", "a", "an", "explain", "define"].includes(w))
+    .filter(
+      (w) =>
+        ![
+          "what",
+          "is",
+          "are",
+          "the",
+          "of",
+          "in",
+          "on",
+          "for",
+          "a",
+          "an",
+          "explain",
+          "define"
+        ].includes(w)
+    )
     .slice(0, 5);
 
   importantWords.forEach((word) => {
@@ -289,8 +344,16 @@ async function runAcademicPipeline({ question, grade, subject, mode, studentId, 
         { chapterName: new RegExp(`\\b${escapeRegex(word)}\\b`, "i") },
         { searchableText: new RegExp(`\\b${escapeRegex(word)}\\b`, "i") },
         { content: new RegExp(`\\b${escapeRegex(word)}\\b`, "i") },
-        { keywords: { $elemMatch: { $regex: `\\b${escapeRegex(word)}\\b`, $options: "i" } } },
-        { aliases: { $elemMatch: { $regex: `\\b${escapeRegex(word)}\\b`, $options: "i" } } }
+        {
+          keywords: {
+            $elemMatch: { $regex: `\\b${escapeRegex(word)}\\b`, $options: "i" }
+          }
+        },
+        {
+          aliases: {
+            $elemMatch: { $regex: `\\b${escapeRegex(word)}\\b`, $options: "i" }
+          }
+        }
       );
     }
   });
@@ -299,7 +362,9 @@ async function runAcademicPipeline({ question, grade, subject, mode, studentId, 
     const lexicalMatches = await SyllabusNode.find({
       ...lexicalQuery,
       $or: lexicalOr
-    }).limit(20).lean();
+    })
+      .limit(20)
+      .lean();
 
     if (lexicalMatches.length > 0) {
       matches = buildKeywordFallback(question, lexicalMatches).slice(0, 5);
@@ -320,166 +385,34 @@ async function runAcademicPipeline({ question, grade, subject, mode, studentId, 
         {
           $vectorSearch: {
             index: "vector_index",
-            path: "embedding",
-            queryVector: embedding,
-            numCandidates: 150,
-            limit: 20,
-            filter: vectorFilter
-          }
-        },
-        {
-          $project: {
-            subject: 1,
-            grade: 1,
-            board: 1,
-            chapter: 1,
-            chapterName: 1,
-            chapterCode: 1,
-            topic: 1,
-            topicName: 1,
-            topicCode: 1,
-            content: 1,
-            searchableText: 1,
-            keywords: 1,
-            aliases: 1,
-            score: { $meta: "vectorSearchScore" }
-          }
-        }
-      ]);
+            path: "The syntax error is because your file currently has **two overlapping versions** of the academic flow plus a literal comment fragment `full aicontroller pls check it` in the middle. You need to keep only **one** implementation of the academic pipeline and `askAI`, and remove everything between the two versions.
 
-      if (vectorMatches.length > 0) {
-        matches = buildKeywordFallback(question, vectorMatches);
-        retrievalMethod = "vector";
-      }
-    } catch (vectorError) {
-      console.error("Vector search failed:", vectorError.message);
-    }
-  }
+Right now your file has:
 
-  let finalMatches = [];
-  let retrievalStrength = "none";
+1. A clean `runAcademicPipeline(...)` + `askAI(...)` (the first big block).
+2. Then this stray line:
 
-  if (matches.length > 0) {
-    if (retrievalMethod === "lexical") {
-      finalMatches = matches.slice(0, 3);
-      retrievalStrength = finalMatches.length >= 2 ? "strong" : "weak";
-    } else {
-      const scored = matches.map((m) => ({
-        ...m,
-        _score: m.finalScore ?? m.score ?? 0
-      }));
+```js
+}full aicontroller pls check it 
+```
 
-      const strongMatches = scored.filter((node) => node._score >= 0.60);
-      const mediumMatches = scored.filter((node) => node._score >= 0.40);
+3. Then an **old copy** of the academic logic that still does `res.status(200).json(...)` directly inside the pipeline.
 
-      if (strongMatches.length > 0) {
-        finalMatches = strongMatches.slice(0, 4);
-        retrievalStrength = "strong";
-      } else if (mediumMatches.length > 0) {
-        finalMatches = mediumMatches.slice(0, 3);
-        retrievalStrength = "weak";
-      } else {
-        finalMatches = scored.slice(0, 2);
-        retrievalStrength = "weak";
-      }
-    }
-  }
+That entire second block (from `}full aicontroller pls check it` down to the extra `return res.status(200).json({ ... });` and its `catch`/`}`) must be deleted, because you already replaced it with the new `runAcademicPipeline(...)` + `askAI(...)` structure above.
 
-  const syllabusContext = formatSyllabusContext(finalMatches);
+## Exact fix
 
-  const matchedTopic = finalMatches[0] ? getTopic(finalMatches[0]) || null : null;
-  const matchedChapter = finalMatches[0] ? getChapter(finalMatches[0]) || null : null;
+In `src/controllers/aiController.js`:
 
-  console.log("[ASKAI] retrievalMethod:", retrievalMethod);
-  console.log("[ASKAI] retrievalStrength:", retrievalStrength);
-  console.log("[ASKAI] matchedChapter:", matchedChapter);
-  console.log("[ASKAI] matchedTopic:", matchedTopic);
-  console.log(
-    "[ASKAI] usedMatches:",
-    finalMatches.map((m) => ({
-      chapter: getChapter(m),
-      topic: getTopic(m),
-      score: m.finalScore || m.score || 0
-    }))
-  );
+1. Keep everything from the top down through:
 
-  const weakTopics = await getWeakTopics(userId);
-  const revisionMode = await shouldTriggerRevision(userId, matchedTopic || "unknown");
-
-  let weakContext = "";
-  if (weakTopics.length > 0) {
-    weakContext = weakTopics
-      .map((t) => `${t.topic} (${t.subject}) count=${t.count}`)
-      .join(", ");
-  }
-
-  let answer = await aiService.getAnswer({
-    question,
-    grade,
-    subject,
-    mode,
-    syllabusContext,
-    retrievalStrength,
-    weakContext,
-    revisionMode
-  });
-
-  answer = cleanAIText(answer);
-
-  console.log("Updating memory for:", userId);
-
-  await updateMemory(
-    userId,
-    question,
-    subject,
-    grade,
-    matchedTopic || "unknown"
-  );
-
-  let triggeredQuiz = null;
-  if (revisionMode && matchedTopic) {
-    triggeredQuiz = await generateQuiz({
-      topic: matchedTopic,
-      subject,
-      grade,
-      count: 5
-    });
-  }
-
-  try {
-    if (student && student.recentQuestions) {
-      student.recentQuestions.push(question);
-      await student.save();
-    }
-  } catch (err) {
-    console.log("History save skipped");
-  }
-
+```js
+async function runAcademicPipeline({ question, grade, subject, mode, studentId, userId, res }) {
+  // ...
   return {
     answer,
     meta: {
-      mode,
-      grade: grade || null,
-      subject: subject || null,
-      detectedTopic: detectedTopic || null,
-      retrievalMethod,
-      contextUsed: finalMatches.length > 0,
-      retrievalStrength,
-      revisionMode,
-      weakTopics: weakTopics.slice(0, 3),
-      totalMatches: matches.length,
-      usedMatches: finalMatches.length,
-      matchedTopics: finalMatches
-        .filter((item) => (item.finalScore || item.score || 0) > 0)
-        .map((item) => ({
-          subject: item.subject || null,
-          grade: item.grade || null,
-          chapter: getChapter(item) || null,
-          chapterCode: item.chapterCode || null,
-          topic: getTopic(item) || null,
-          topicCode: item.topicCode || null,
-          score: item.finalScore || item.score || 0
-        }))
+      // ...
     },
     matchedChapter,
     matchedTopic,
@@ -489,70 +422,11 @@ async function runAcademicPipeline({ question, grade, subject, mode, studentId, 
 
 async function askAI(req, res) {
   try {
-    const question = String(req.body.question || "").trim();
-    const grade = normalizeGrade(req.body.grade);
-    const subject = normalizeSubject(req.body.subject);
-    const mode = normalizeMode(req.body.mode);
-    const studentId = req.body.studentId || null;
-    const userId = studentId || "demo-user";
-
-    if (!question) {
-      return res.status(400).json({
-        success: false,
-        error: "Question is required"
-      });
-    }
-
-    if (question.length > 1000) {
-      return res.status(400).json({
-        success: false,
-        error: "Question is too long"
-      });
-    }
-
-    // NEW: intent detection
-    const { intent } = detectIntent(question);
-    console.log("[ASKAI] detected intent:", intent);
-
-    if (intent === "chitchat" || intent === "general") {
-      const language = req.body.language || "English";
-      const casualAnswer = await generateCasualReply({ question, language });
-
-      return res.status(200).json({
-        success: true,
-        answer: cleanAIText(casualAnswer),
-        meta: {
-          mode,
-          grade: grade || null,
-          subject: subject || null,
-          detectedTopic: null,
-          retrievalMethod: "none",
-          contextUsed: false,
-          retrievalStrength: "none",
-          revisionMode: false,
-          weakTopics: [],
-          totalMatches: 0,
-          usedMatches: 0,
-          matchedTopics: [],
-          intent: "chitchat"
-        },
-        matchedChapter: null,
-        matchedTopic: null,
-        mood: "friendly",
-        quiz: null
-      });
-    }
-
-    // Academic / syllabus flow (existing behavior)
-    const result = await runAcademicPipeline({
-      question,
-      grade,
-      subject,
-      mode,
-      studentId,
-      userId,
-      res
-    });
+    // ...
+    // intent check
+    // ...
+    // academic branch:
+    const result = await runAcademicPipeline({ ... });
 
     return res.status(200).json({
       success: true,
@@ -574,114 +448,35 @@ async function askAI(req, res) {
       error: "Something went wrong while generating the answer"
     });
   }
+}
+```
+
+2. **Delete everything** starting from this stray text:
+
+```js
 }full aicontroller pls check it 
+```
 
+down to just before:
 
+```js
+async function getReportCard(req, res) {
+```
 
-    const syllabusContext = formatSyllabusContext(finalMatches);
+That means the second copy of:
 
-    const matchedTopic = finalMatches[0] ? getTopic(finalMatches[0]) || null : null;
-    const matchedChapter = finalMatches[0] ? getChapter(finalMatches[0]) || null : null;
+- `const syllabusContext = formatSyllabusContext(finalMatches);`
+- the old `return res.status(200).json({ success: true, answer, meta: { ... } })` block,
+- the second `catch (error) { ... }` after it,
 
-    // DEBUG: retrieval transparency
-    console.log("[ASKAI] retrievalMethod:", retrievalMethod);
-    console.log("[ASKAI] retrievalStrength:", retrievalStrength);
-    console.log("[ASKAI] matchedChapter:", matchedChapter);
-    console.log("[ASKAI] matchedTopic:", matchedTopic);
-    console.log(
-      "[ASKAI] usedMatches:",
-      finalMatches.map((m) => ({
-        chapter: getChapter(m),
-        topic: getTopic(m),
-        score: m.finalScore || m.score || 0
-      }))
-    );
+all of that must be removed.
 
-    const weakTopics = await getWeakTopics(userId);
-    const revisionMode = await shouldTriggerRevision(userId, matchedTopic || "unknown");
+3. After cleanup, the bottom of your file should look like this:
 
-    let weakContext = "";
-    if (weakTopics.length > 0) {
-      weakContext = weakTopics
-        .map((t) => `${t.topic} (${t.subject}) count=${t.count}`)
-        .join(", ");
-    }
-
-    let answer = await aiService.getAnswer({
-      question,
-      grade,
-      subject,
-      mode,
-      syllabusContext,
-      retrievalStrength,
-      weakContext,
-      revisionMode
-    });
-
-    answer = cleanAIText(answer);
-
-    console.log("Updating memory for:", userId);
-
-    await updateMemory(
-      userId,
-      question,
-      subject,
-      grade,
-      matchedTopic || "unknown"
-    );
-
-    let triggeredQuiz = null;
-    if (revisionMode && matchedTopic) {
-      triggeredQuiz = await generateQuiz({
-        topic: matchedTopic,
-        subject,
-        grade,
-        count: 5
-      });
-    }
-
-    try {
-      if (student && student.recentQuestions) {
-        student.recentQuestions.push(question);
-        await student.save();
-      }
-    } catch (err) {
-      console.log("History save skipped");
-    }
-
-    return res.status(200).json({
-      success: true,
-      answer,
-      meta: {
-        mode,
-        grade: grade || null,
-        subject: subject || null,
-        detectedTopic: detectedTopic || null,
-        retrievalMethod,
-        contextUsed: finalMatches.length > 0,
-        retrievalStrength,
-        revisionMode,
-        weakTopics: weakTopics.slice(0, 3),
-        totalMatches: matches.length,
-        usedMatches: finalMatches.length,
-        matchedTopics: finalMatches
-          .filter((item) => (item.finalScore || item.score || 0) > 0)
-          .map((item) => ({
-          subject: item.subject || null,
-          grade: item.grade || null,
-          chapter: getChapter(item) || null,
-          chapterCode: item.chapterCode || null,
-          topic: getTopic(item) || null,
-          topicCode: item.topicCode || null,
-          score: item.finalScore || item.score || 0
-  }))
-
-      },
-      matchedChapter,
-      matchedTopic,
-      mood: "explainer",
-      quiz: triggeredQuiz
-    });
+```js
+async function askAI(req, res) {
+  try {
+    // ... as in the first version you pasted ...
   } catch (error) {
     console.error("askAI error:", error.response?.data || error.message);
 
