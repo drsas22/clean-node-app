@@ -53,7 +53,6 @@ function normalizeGrade(input) {
     "10th": "10",
     "11th": "11",
     "12th": "12",
-
     undergraduate: "undergraduate",
     undergraduatelevel: "undergraduate",
     ug: "undergraduate",
@@ -67,7 +66,6 @@ function normalizeGrade(input) {
     bpt: "undergraduate",
     nursing: "undergraduate",
     engineering: "undergraduate",
-
     postgraduate: "postgraduate",
     postgraduatelevel: "postgraduate",
     pg: "postgraduate",
@@ -78,7 +76,6 @@ function normalizeGrade(input) {
     mds: "postgraduate",
     resident: "postgraduate",
     residency: "postgraduate",
-
     research: "researcher",
     researcher: "researcher",
     researchers: "researcher",
@@ -385,34 +382,166 @@ async function runAcademicPipeline({ question, grade, subject, mode, studentId, 
         {
           $vectorSearch: {
             index: "vector_index",
-            path: "The syntax error is because your file currently has **two overlapping versions** of the academic flow plus a literal comment fragment `full aicontroller pls check it` in the middle. You need to keep only **one** implementation of the academic pipeline and `askAI`, and remove everything between the two versions.
+            path: "embedding",
+            queryVector: embedding,
+            numCandidates: 150,
+            limit: 20,
+            filter: vectorFilter
+          }
+        },
+        {
+          $project: {
+            subject: 1,
+            grade: 1,
+            board: 1,
+            chapter: 1,
+            chapterName: 1,
+            chapterCode: 1,
+            topic: 1,
+            topicName: 1,
+            topicCode: 1,
+            content: 1,
+            searchableText: 1,
+            keywords: 1,
+            aliases: 1,
+            score: { $meta: "vectorSearchScore" }
+          }
+        }
+      ]);
 
-Right now your file has:
+      if (vectorMatches.length > 0) {
+        matches = buildKeywordFallback(question, vectorMatches);
+        retrievalMethod = "vector";
+      }
+    } catch (vectorError) {
+      console.error("Vector search failed:", vectorError.message);
+    }
+  }
 
-1. A clean `runAcademicPipeline(...)` + `askAI(...)` (the first big block).
-2. Then this stray line:
+  let finalMatches = [];
+  let retrievalStrength = "none";
 
-```js
-}full aicontroller pls check it 
-```
+  if (matches.length > 0) {
+    if (retrievalMethod === "lexical") {
+      finalMatches = matches.slice(0, 3);
+      retrievalStrength = finalMatches.length >= 2 ? "strong" : "weak";
+    } else {
+      const scored = matches.map((m) => ({
+        ...m,
+        _score: m.finalScore ?? m.score ?? 0
+      }));
 
-3. Then an **old copy** of the academic logic that still does `res.status(200).json(...)` directly inside the pipeline.
+      const strongMatches = scored.filter((node) => node._score >= 0.6);
+      const mediumMatches = scored.filter((node) => node._score >= 0.4);
 
-That entire second block (from `}full aicontroller pls check it` down to the extra `return res.status(200).json({ ... });` and its `catch`/`}`) must be deleted, because you already replaced it with the new `runAcademicPipeline(...)` + `askAI(...)` structure above.
+      if (strongMatches.length > 0) {
+        finalMatches = strongMatches.slice(0, 4);
+        retrievalStrength = "strong";
+      } else if (mediumMatches.length > 0) {
+        finalMatches = mediumMatches.slice(0, 3);
+        retrievalStrength = "weak";
+      } else {
+        finalMatches = scored.slice(0, 2);
+        retrievalStrength = "weak";
+      }
+    }
+  }
 
-## Exact fix
+  const syllabusContext = formatSyllabusContext(finalMatches);
 
-In `src/controllers/aiController.js`:
+  const matchedTopic = finalMatches[0] ? getTopic(finalMatches[0]) || null : null;
+  const matchedChapter = finalMatches[0] ? getChapter(finalMatches[0]) || null : null;
 
-1. Keep everything from the top down through:
+  console.log("[ASKAI] retrievalMethod:", retrievalMethod);
+  console.log("[ASKAI] retrievalStrength:", retrievalStrength);
+  console.log("[ASKAI] matchedChapter:", matchedChapter);
+  console.log("[ASKAI] matchedTopic:", matchedTopic);
+  console.log(
+    "[ASKAI] usedMatches:",
+    finalMatches.map((m) => ({
+      chapter: getChapter(m),
+      topic: getTopic(m),
+      score: m.finalScore || m.score || 0
+    }))
+  );
 
-```js
-async function runAcademicPipeline({ question, grade, subject, mode, studentId, userId, res }) {
-  // ...
+  const weakTopics = await getWeakTopics(userId);
+  const revisionMode = await shouldTriggerRevision(userId, matchedTopic || "unknown");
+
+  let weakContext = "";
+  if (weakTopics.length > 0) {
+    weakContext = weakTopics
+      .map((t) => `${t.topic} (${t.subject}) count=${t.count}`)
+      .join(", ");
+  }
+
+  let answer = await aiService.getAnswer({
+    question,
+    grade,
+    subject,
+    mode,
+    syllabusContext,
+    retrievalStrength,
+    weakContext,
+    revisionMode
+  });
+
+  answer = cleanAIText(answer);
+
+  console.log("Updating memory for:", userId);
+
+  await updateMemory(
+    userId,
+    question,
+    subject,
+    grade,
+    matchedTopic || "unknown"
+  );
+
+  let triggeredQuiz = null;
+  if (revisionMode && matchedTopic) {
+    triggeredQuiz = await generateQuiz({
+      topic: matchedTopic,
+      subject,
+      grade,
+      count: 5
+    });
+  }
+
+  try {
+    if (student && student.recentQuestions) {
+      student.recentQuestions.push(question);
+      await student.save();
+    }
+  } catch (err) {
+    console.log("History save skipped");
+  }
+
   return {
     answer,
     meta: {
-      // ...
+      mode,
+      grade: grade || null,
+      subject: subject || null,
+      detectedTopic: detectedTopic || null,
+      retrievalMethod,
+      contextUsed: finalMatches.length > 0,
+      retrievalStrength,
+      revisionMode,
+      weakTopics: weakTopics.slice(0, 3),
+      totalMatches: matches.length,
+      usedMatches: finalMatches.length,
+      matchedTopics: finalMatches
+        .filter((item) => (item.finalScore || item.score || 0) > 0)
+        .map((item) => ({
+          subject: item.subject || null,
+          grade: item.grade || null,
+          chapter: getChapter(item) || null,
+          chapterCode: item.chapterCode || null,
+          topic: getTopic(item) || null,
+          topicCode: item.topicCode || null,
+          score: item.finalScore || item.score || 0
+        }))
     },
     matchedChapter,
     matchedTopic,
@@ -422,11 +551,67 @@ async function runAcademicPipeline({ question, grade, subject, mode, studentId, 
 
 async function askAI(req, res) {
   try {
-    // ...
-    // intent check
-    // ...
-    // academic branch:
-    const result = await runAcademicPipeline({ ... });
+    const question = String(req.body.question || "").trim();
+    const grade = normalizeGrade(req.body.grade);
+    const subject = normalizeSubject(req.body.subject);
+    const mode = normalizeMode(req.body.mode);
+    const studentId = req.body.studentId || null;
+    const userId = studentId || "demo-user";
+
+    if (!question) {
+      return res.status(400).json({
+        success: false,
+        error: "Question is required"
+      });
+    }
+
+    if (question.length > 1000) {
+      return res.status(400).json({
+        success: false,
+        error: "Question is too long"
+      });
+    }
+
+    const { intent } = detectIntent(question);
+    console.log("[ASKAI] detected intent:", intent);
+
+    if (intent === "chitchat" || intent === "general") {
+      const language = req.body.language || "English";
+      const casualAnswer = await generateCasualReply({ question, language });
+
+      return res.status(200).json({
+        success: true,
+        answer: cleanAIText(casualAnswer),
+        meta: {
+          mode,
+          grade: grade || null,
+          subject: subject || null,
+          detectedTopic: null,
+          retrievalMethod: "none",
+          contextUsed: false,
+          retrievalStrength: "none",
+          revisionMode: false,
+          weakTopics: [],
+          totalMatches: 0,
+          usedMatches: 0,
+          matchedTopics: [],
+          intent: "chitchat"
+        },
+        matchedChapter: null,
+        matchedTopic: null,
+        mood: "friendly",
+        quiz: null
+      });
+    }
+
+    const result = await runAcademicPipeline({
+      question,
+      grade,
+      subject,
+      mode,
+      studentId,
+      userId
+    });
 
     return res.status(200).json({
       success: true,
@@ -440,43 +625,6 @@ async function askAI(req, res) {
       mood: "explainer",
       quiz: result.quiz
     });
-  } catch (error) {
-    console.error("askAI error:", error.response?.data || error.message);
-
-    return res.status(500).json({
-      success: false,
-      error: "Something went wrong while generating the answer"
-    });
-  }
-}
-```
-
-2. **Delete everything** starting from this stray text:
-
-```js
-}full aicontroller pls check it 
-```
-
-down to just before:
-
-```js
-async function getReportCard(req, res) {
-```
-
-That means the second copy of:
-
-- `const syllabusContext = formatSyllabusContext(finalMatches);`
-- the old `return res.status(200).json({ success: true, answer, meta: { ... } })` block,
-- the second `catch (error) { ... }` after it,
-
-all of that must be removed.
-
-3. After cleanup, the bottom of your file should look like this:
-
-```js
-async function askAI(req, res) {
-  try {
-    // ... as in the first version you pasted ...
   } catch (error) {
     console.error("askAI error:", error.response?.data || error.message);
 
