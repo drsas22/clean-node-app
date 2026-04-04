@@ -15,7 +15,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use("/api/students"' studentRoutes); 
+app.use("/api/students", studentRoutes);
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
