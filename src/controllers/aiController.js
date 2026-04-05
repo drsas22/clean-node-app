@@ -264,7 +264,7 @@ async function updateMemory(userId, question, subject, grade, topic) {
   }
 }
 
-async function runAcademicPipeline({ question, grade, subject, mode, studentId, userId }) {
+async function runAcademicPipeline({ question, grade, subject, mode, language, studentId, userId }) {
   const detectedTopic = extractTopic(question);
 
   let student = null;
@@ -480,6 +480,7 @@ async function runAcademicPipeline({ question, grade, subject, mode, studentId, 
     grade,
     subject,
     mode,
+    language,
     syllabusContext,
     retrievalStrength,
     weakContext,
@@ -556,6 +557,7 @@ async function askAI(req, res) {
     const subject = normalizeSubject(req.body.subject);
     const mode = normalizeMode(req.body.mode);
     const studentId = req.body.studentId || null;
+    const language = req.body.language || "English";
     const userId = studentId || "demo-user";
 
     if (!question) {
@@ -574,9 +576,9 @@ async function askAI(req, res) {
 
     const { intent } = detectIntent(question);
     console.log("[ASKAI] detected intent:", intent);
+    console.log("[ASKAI] language from unity:", language);
 
     if (intent === "chitchat" || intent === "general") {
-      const language = req.body.language || "English";
       const casualAnswer = await generateCasualReply({ question, language });
 
       return res.status(200).json({
@@ -609,6 +611,7 @@ async function askAI(req, res) {
       grade,
       subject,
       mode,
+      language,
       studentId,
       userId
     });
