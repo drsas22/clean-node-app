@@ -277,7 +277,7 @@ function buildUserPrompt({
   revisionMode = false
 }) {
   return `
-Respond strictly in ${language}.
+Respond strictly in ${language}. Do not use English, still answer in ${language}
 Student Question:
 ${question}
 
