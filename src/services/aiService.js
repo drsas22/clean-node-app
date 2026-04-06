@@ -270,12 +270,14 @@ function buildUserPrompt({
   grade,
   subject,
   mode = "study",
+  language = "English",
   syllabusContext = "No syllabus context found.",
   retrievalStrength = "none",
   weakContext = "",
   revisionMode = false
 }) {
   return `
+Respond strictly in ${language}.
 Student Question:
 ${question}
 
@@ -334,6 +336,7 @@ const getAnswer = async ({
   grade,
   subject,
   mode = "study",
+  language = "English",
   syllabusContext = "No syllabus context found.",
   retrievalStrength = "none",
   weakContext = "",
@@ -361,6 +364,7 @@ const getAnswer = async ({
           grade,
           subject,
           mode,
+          language,
           syllabusContext,
           retrievalStrength,
           weakContext,
